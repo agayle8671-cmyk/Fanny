@@ -1,14 +1,17 @@
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, Header, Query
+from fastapi.responses import Response
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import io
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
 import uuid
 from datetime import datetime, timezone, timedelta
+from PIL import Image, ImageDraw, ImageFont
 
 
 ROOT_DIR = Path(__file__).parent
@@ -159,6 +162,87 @@ async def get_article(slug: str):
     if not doc:
         raise HTTPException(status_code=404, detail="Article not found")
     return doc
+
+
+# ── Open Graph countdown image ──
+RELEASE_DATE = datetime(2026, 11, 19, tzinfo=timezone.utc)
+
+
+def _load_font(size: int, bold: bool = False):
+    candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception:
+                pass
+    return ImageFont.load_default()
+
+
+@api_router.get("/og/countdown.png")
+async def og_countdown_image():
+    """1200x630 Open Graph image with the live countdown."""
+    from PIL import ImageFilter
+
+    w, h = 1200, 630
+    img = Image.new("RGB", (w, h), (5, 5, 5))
+
+    # Soft color blobs (vice pink, sunset orange, cyan edge)
+    for (cx, cy, r, color, alpha) in [
+        (200, 120, 320, (255, 42, 109), 110),
+        (1050, 200, 380, (255, 123, 0), 90),
+        (700, 580, 420, (5, 217, 232), 70),
+    ]:
+        blob = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        bd = ImageDraw.Draw(blob)
+        bd.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(*color, alpha))
+        blob = blob.filter(ImageFilter.GaussianBlur(radius=80))
+        img.paste(blob, (0, 0), blob)
+
+    draw = ImageDraw.Draw(img)
+
+    diff = RELEASE_DATE - datetime.now(timezone.utc)
+    days = max(0, diff.days)
+
+    # Left hairlines
+    for x in (60, 64):
+        draw.line([(x, 60), (x, h - 60)], fill=(255, 255, 255), width=1)
+
+    f_eyebrow = _load_font(22, bold=True)
+    draw.text((96, 70), "LEONIDA VICE  ·  THE GTA VI FAN ARCHIVE", font=f_eyebrow, fill=(5, 217, 232))
+
+    f_big = _load_font(260, bold=True)
+    days_str = str(days)
+    bbox = draw.textbbox((0, 0), days_str, font=f_big)
+    tw = bbox[2] - bbox[0]
+    draw.text((96, 130), days_str, font=f_big, fill=(255, 255, 255))
+
+    f_label = _load_font(48, bold=True)
+    draw.text((96 + tw + 24, 250), "DAYS", font=f_label, fill=(255, 42, 109))
+    f_label_small = _load_font(22, bold=True)
+    draw.text((96 + tw + 26, 310), "UNTIL LEONIDA", font=f_label_small, fill=(200, 200, 200))
+
+    draw.line([(96, 460), (w - 96, 460)], fill=(255, 255, 255), width=2)
+
+    f_head = _load_font(54, bold=True)
+    draw.text((96, 485), "GRAND THEFT AUTO VI", font=f_head, fill=(255, 255, 255))
+
+    f_foot = _load_font(22)
+    draw.text((96, 555), "November 19, 2026  ·  PS5  ·  Xbox Series X|S", font=f_foot, fill=(180, 180, 180))
+
+    f_badge = _load_font(20, bold=True)
+    draw.text((w - 260, 555), "leonida.vice", font=f_badge, fill=(5, 217, 232))
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    return Response(
+        content=buf.getvalue(),
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 # Include the router in the main app

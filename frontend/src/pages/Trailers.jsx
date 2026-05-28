@@ -1,9 +1,22 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Play, X } from "lucide-react";
 import { trailers } from "../data/trailers";
 
 const Trailers = () => {
   const [active, setActive] = useState(null);
+
+  useEffect(() => {
+    if (!active) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape") setActive(null);
+    };
+    document.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [active]);
   return (
     <div data-testid="trailers-page" className="bg-[#050505] text-white pt-32">
       <div className="max-w-[1400px] mx-auto px-6 md:px-12">

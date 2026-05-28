@@ -12,6 +12,7 @@ const navLinks = [
   { to: "/locations", label: "Locations", testid: "nav-locations-link" },
   { to: "/vehicles", label: "Vehicles", testid: "nav-vehicles-link" },
   { to: "/arsenal", label: "Arsenal", testid: "nav-arsenal-link" },
+  { to: "/markets", label: "Markets", testid: "nav-markets-link" },
   { to: "/trailers", label: "Trailers", testid: "nav-trailers-link" },
   { to: "/soundtrack", label: "Soundtrack", testid: "nav-soundtrack-link" },
 ];

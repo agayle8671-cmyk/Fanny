@@ -73,13 +73,31 @@ const Arsenal = () => {
                 <img
                   src={w.image}
                   alt={w.name}
-                  className="absolute inset-0 w-full h-full object-cover opacity-80 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700"
+                  className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-90 group-hover:scale-105 transition-all duration-700 saturate-0 group-hover:saturate-100"
+                  style={{ filter: "contrast(1.1)" }}
+                />
+                {/* Duotone wash so stock photos read as part of the brand rather than as themselves */}
+                <div
+                  className="absolute inset-0 mix-blend-color group-hover:opacity-0 transition-opacity duration-500"
+                  style={{
+                    background:
+                      "linear-gradient(135deg, rgba(255,42,109,0.6) 0%, rgba(5,217,232,0.5) 100%)",
+                  }}
                 />
                 <div className="absolute inset-0 hero-overlay" />
-                <div className="absolute top-3 left-3 text-[10px] uppercase tracking-[0.25em] text-[#FF2A6D] font-semibold bg-black/60 px-2 py-1 rounded-sm">
+                {/* Schematic grid overlay */}
+                <div
+                  className="absolute inset-0 opacity-30 group-hover:opacity-10 transition-opacity duration-500 pointer-events-none"
+                  style={{
+                    backgroundImage:
+                      "linear-gradient(rgba(255,255,255,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.06) 1px, transparent 1px)",
+                    backgroundSize: "32px 32px",
+                  }}
+                />
+                <div className="absolute top-3 left-3 text-[10px] uppercase tracking-[0.25em] text-[#FF2A6D] font-semibold bg-black/70 backdrop-blur-sm px-2 py-1 rounded-sm">
                   {w.category}
                 </div>
-                <div className="absolute bottom-3 right-3 text-[10px] uppercase tracking-[0.22em] text-zinc-300 bg-black/60 px-2 py-1 rounded-sm tabular-nums">
+                <div className="absolute bottom-3 right-3 text-[10px] uppercase tracking-[0.22em] text-zinc-300 bg-black/70 backdrop-blur-sm px-2 py-1 rounded-sm tabular-nums font-mono">
                   {w.capacity > 0 ? `${w.capacity} rds` : "—"}
                 </div>
               </div>

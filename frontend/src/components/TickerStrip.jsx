@@ -1,8 +1,10 @@
-// Auto-scrolling breaking-news ticker that lives above the navbar.
-// Headlines are short, urgent, fully GTA-canon.
+// Auto-scrolling breaking-news ticker. Pulls from /api/articles/trending
+// when available, falls back to a curated set of canonical headlines.
+import { useEffect, useState } from "react";
 import { Zap } from "lucide-react";
+import { api } from "../lib/api";
 
-const DEFAULT_HEADLINES = [
+const FALLBACK = [
   "GTA VI launches November 19, 2026 on PS5 & Xbox Series X|S",
   "State of Leonida confirmed at 2–2.5× the size of Los Santos",
   "Dual protagonists Jason Duval & Lucia Caminos officially playable",
@@ -15,7 +17,27 @@ const DEFAULT_HEADLINES = [
   "Tom Petty's 'Love Is a Long Road' confirmed for the in-game soundtrack",
 ];
 
-export const TickerStrip = ({ headlines = DEFAULT_HEADLINES }) => {
+export const TickerStrip = () => {
+  const [headlines, setHeadlines] = useState(FALLBACK);
+
+  useEffect(() => {
+    let alive = true;
+    const refresh = () => {
+      api.trending(10).then((res) => {
+        if (!alive) return;
+        if (res && res.items && res.items.length > 0) {
+          setHeadlines(res.items.map((i) => i.title));
+        }
+      });
+    };
+    refresh();
+    const id = setInterval(refresh, 60_000); // refresh every minute
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+
   const list = [...headlines, ...headlines];
   return (
     <div
@@ -23,12 +45,10 @@ export const TickerStrip = ({ headlines = DEFAULT_HEADLINES }) => {
       className="relative w-full overflow-hidden bg-black border-b border-white/10"
     >
       <div className="flex items-stretch h-8">
-        {/* Sticky LIVE label */}
         <div className="flex-none inline-flex items-center gap-2 px-4 bg-[#FF2A6D] text-white text-[10px] font-bold uppercase tracking-[0.3em]">
           <Zap size={12} className="animate-pulse" fill="white" />
           Live Wire
         </div>
-        {/* Scrolling rail */}
         <div className="relative flex-1 overflow-hidden">
           <div className="flex items-center whitespace-nowrap animate-marquee h-full">
             {list.map((h, i) => (
@@ -44,7 +64,6 @@ export const TickerStrip = ({ headlines = DEFAULT_HEADLINES }) => {
               </span>
             ))}
           </div>
-          {/* Edge fades */}
           <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-black to-transparent" />
           <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-black to-transparent" />
         </div>
