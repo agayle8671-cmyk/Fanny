@@ -1,57 +1,94 @@
 # Leonida Vice — Product Requirements
 
 ## Original Problem Statement
-> "hey I'm making a GTA 6 fansite called leonida vice ... read the pdfs attached and make me a Netflix / IMDb / gamespot clone website ... beautiful UI mixed with the styling elements from these websites ... spectacular ... most anticipated game of all time ... beautiful editorial style of gamespot articles ... beautiful card designs of Netflix and the data density of IMDb ... seed data everywhere ... every page should be a standalone page that is fully fleshed out ... correct information and images only ... huge epic background images with text styling underneath ... the article styling is arguably the most important part of my website"
+> "GTA 6 fansite called leonida vice ... Netflix / IMDb / gamespot clone website ... spectacular ... beautiful editorial style of gamespot articles ... beautiful card designs of Netflix and the data density of IMDb ... seed data everywhere ... every page should be a standalone page that is fully fleshed out ... the article styling is arguably the most important part of my website"
 
 ## Architecture
-- **Stack:** React 19 (CRA + craco), Tailwind, react-router-dom v7, FastAPI + MongoDB scaffolding (not currently used; site is static seed-data driven by user choice).
-- **Theme:** Tropical Noir / Vice City Epic — dark-first, Bebas Neue + Playfair Display + Outfit, vice-pink / sunset-orange / cyan-edge palette.
-- **Routing:** Home, News, News Article, Characters, Character Detail, Locations, Location Detail, Vehicles, Trailers, Soundtrack.
-- **Data:** All seed data lives in `/app/frontend/src/data/` (articles, characters, locations, vehicles, trailers, soundtrack, gameInfo). All info verified against the supplied GTA 6 Knowledge Base PDF.
+- **Stack:** React 19 + react-router-dom v7 + Tailwind + craco; FastAPI + Mongo (Motor).
+- **Theme:** Tropical Noir — `#050505` background, Bebas Neue / Playfair Display / Outfit fonts, vice-pink + cyan-edge + sunset-orange palette.
+- **Routing:** `/`, `/news`, `/news/:slug`, `/characters`, `/characters/:slug`, `/locations`, `/locations/:slug`, `/vehicles`, `/arsenal`, `/intel`, `/trailers`, `/soundtrack`.
+- **Two content lanes:**
+  - **Editorial** — handwritten long-form pieces stored in `/app/frontend/src/data/articles.js`, rendered through the GameSpot-style `Article.jsx` template.
+  - **Newswire / Intel** — real-time scraped articles ingested into Mongo via `/api/articles/ingest`, displayed on the home rail + `/intel` page with source attribution and external link-outs.
 
-## User Personas
-- **Hardcore fan** — wants editorial deep-dives and verified information.
-- **Casual visitor** — wants spectacle and shareable visuals on landing.
-- **Search-driven visitor** — lands on a character/location detail page and expects it to be fully fleshed out.
+## What's Been Implemented
+### Phase 1 (initial MVP)
+- 10 fully-fleshed pages: Home, News, Article, Characters, CharacterDetail, Locations, LocationDetail, Vehicles, Trailers, Soundtrack.
+- Seed data: 6 long-form articles, 11 characters, 13 locations, 21 vehicles, 4 trailers, 9 songs/stations.
+- GameSpot-style article template with full-bleed hero, drop-cap intro, pull quotes, inline images, related articles.
 
-## Core Requirements (Static)
-- Editorial article styling (GameSpot): full-bleed hero, drop-cap intro, pull quotes, inline images, related articles footer.
-- Netflix-style horizontal rails on home (news, characters, locations).
-- IMDb-style data density on character and location detail pages (quick-facts sidebar + body).
-- Every page is a standalone, fully-fleshed-out page. No empty states.
-- Countdown to November 19, 2026.
-- YouTube trailers embedded.
+### Phase 2 (UI enhancement pass)
+- Rotating hero carousel with Ken Burns zoom + 2.2s crossfade (5 cinematic slides).
+- Magazine masthead micro-strip above the navbar ("Vol. 01 · Issue 06 · Feb 2026" + live "Days Until Leonida").
+- Vertical edge typography on the hero (rotated, magazine flourish).
+- Editorial scrolling marquees between rails.
+- "By The Numbers" bento grid (IMDb-style data density).
+- "Cover Story · Issue 06" stamp on the featured article + Issue numbering on article cards.
 
-## What's Been Implemented (Feb 2026 — Initial MVP)
-- ✅ Home page with cinematic hero, live countdown, featured cover story, 4 horizontal rails (News, Cast, Locations, Garage strip), release marquee.
-- ✅ News hub with lead story + grid of 6 long-form articles.
-- ✅ Article template (GameSpot style) — full-bleed hero, drop cap, pull quotes, inline images, related articles.
-- ✅ Characters hub (large protagonists + supporting grid).
-- ✅ Character detail (IMDb data density — quick facts, abilities, biography, quote, connected characters).
-- ✅ Locations atlas (Vice City districts + State of Leonida counties).
-- ✅ Location detail page.
-- ✅ Vehicles database with category filters and animated stat bars.
-- ✅ Trailers media vault with in-page YouTube modal.
-- ✅ Soundtrack page (confirmed tracks + radio dial).
-- ✅ Persistent Navbar + Footer with mobile menu.
-- ✅ ScrollToTop on route change.
-- ✅ Custom Bebas Neue / Playfair Display / Outfit font stack.
-- ✅ data-testid attributes on every interactive element.
+### Phase 3 (share widget + article polish + design doc)
+- Three-channel Share Widget: section on Home (Spread The Countdown), inline row in every article, floating bottom-right FAB.
+- Reading progress bar pinned to the top of every article (gradient).
+- **Full-bleed inline images** (`.full-bleed`) — articles now use viewport-edge images like GameSpot.
+- Pull-quote redesign with smart-quote ornaments.
+- Prev/Next article navigation cards at the foot of every article.
+- "Filed Under" tag row.
+- Comprehensive design system doc at `/app/LEONIDA_VICE_DESIGN_SYSTEM.md` (16 sections).
+
+### Phase 4 (scraper integration + Arsenal + Live Wire)
+- **Arsenal / Weapons page** at `/arsenal` — 20 weapons across 8 categories, filterable, animated stat bars.
+- **Live Wire ticker** at the very top of the navbar — breaking-news scroll with pulsing LIVE WIRE label.
+- **Newswire backend** in `/app/backend/server.py`:
+  - `POST /api/articles/ingest` (Bearer-token protected via `INGEST_TOKEN` env var). Idempotent upsert by slug.
+  - `GET /api/articles?category=&limit=&offset=` paginated feed sorted by publishedAt desc.
+  - `GET /api/articles/trending?limit=` top by `newsValueScore` from last 48h with full-history fallback.
+  - `GET /api/articles/:slug` single article.
+- **NewswireRail** component on home — fetches `/api/articles?limit=12` and renders source-attributed cards with HOT badges for `newsValueScore ≥ 70`.
+- **Intel page** at `/intel` — full feed with category filter pills, HOT badges, source link-outs, AI summary preview, comment counts, "Reports Filed" counter, graceful empty state with the ingest API contract example.
+- **Two new editorial articles**:
+  - "The ShinyHunters Breach: What Got Out, What Got Confirmed" (Investigations, ~10 min read)
+  - "Markets Reopen: BAWSAQ, LCN, and the Player Economy of GTA VI" (Markets, ~7 min read)
+
+## Scraper Integration Contract
+External scraper POSTs to:
+```
+POST {REACT_APP_BACKEND_URL}/api/articles/ingest
+Authorization: Bearer <INGEST_TOKEN>
+Content-Type: application/json
+
+{
+  "articles": [
+    {
+      "slug": "unique-url-slug",          // required, used as upsert key
+      "title": "...",                      // required
+      "excerpt": "...",
+      "aiSummary": "...",
+      "category": "Leaks" | "Tech" | "Story" | "Trailers" | "World" | "Markets",
+      "sourceName": "IGN",
+      "sourceUrl": "https://...",
+      "url": "https://...",
+      "imageThumbnail": "https://...",
+      "videoThumbnail": "https://...",
+      "isVideo": false,
+      "newsValueScore": 0-100,             // ≥70 triggers HOT badge
+      "commentsCount": 0,
+      "publishedAt": "ISO-8601 string",
+      "scrapedAt": "ISO-8601 string"
+    }
+  ]
+}
+```
+`INGEST_TOKEN` is stored in `/app/backend/.env`.
 
 ## Prioritized Backlog
-- **P1:** Newsletter signup (email capture to backend) + Mongo collection.
-- **P1:** AI-powered "Ask Leonida" lore chatbot (Claude Sonnet via Emergent LLM key).
-- **P2:** Admin CMS to add/edit articles via Mongo.
-- **P2:** User accounts (favorites, comments).
-- **P2:** Interactive Leonida map (SVG district outlines, click-to-explore).
-- **P3:** Community forum / comments.
-- **P3:** Live release-time-zone selector for the countdown.
-
-## Next Tasks
-1. (Optional) Newsletter signup integration.
-2. (Optional) Interactive map page.
-3. (Optional) AI lore assistant.
+- **P1:** Open Graph image generator for shared links (dynamic countdown OG card).
+- **P1:** AI "Ask Leonida" lore chatbot (Claude via Emergent LLM key).
+- **P2:** Markets / BAWSAQ page (live in-game tickers, mock data).
+- **P2:** Interactive SVG/Mapbox map of Leonida.
+- **P2:** Newsletter signup → Mongo + Resend.
+- **P3:** Per-article author photos & bios.
+- **P3:** Community comments.
 
 ## Notes
-- Backend is intentionally minimal (status_check endpoints only) because user chose option (a) Static seed-data driven.
-- No third-party integrations implemented. YouTube embeds are free, key-less.
+- Backend status_check endpoints retained for compatibility.
+- Newswire gracefully degrades to a "warming up" empty state when no scraped articles exist yet.
+- All scraper-ingested data is stored in `scraped_articles` Mongo collection, separate from `status_checks`.

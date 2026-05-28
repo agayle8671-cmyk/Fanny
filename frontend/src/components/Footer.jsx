@@ -1,6 +1,30 @@
 import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { api, timeAgo } from "../lib/api";
 
 export const Footer = () => {
+  const [status, setStatus] = useState({ live: false, count: 0, lastAt: null });
+
+  useEffect(() => {
+    let alive = true;
+    const refresh = () => {
+      api.listArticles({ limit: 1 }).then((res) => {
+        if (!alive || !res) return;
+        setStatus({
+          live: (res.total || 0) > 0,
+          count: res.total || 0,
+          lastAt: res.items?.[0]?.publishedAt || res.items?.[0]?.scrapedAt || null,
+        });
+      });
+    };
+    refresh();
+    const id = setInterval(refresh, 120_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+
   return (
     <footer
       data-testid="site-footer"
@@ -30,6 +54,24 @@ export const Footer = () => {
           <p className="mt-6 text-[11px] uppercase tracking-[0.25em] text-zinc-600">
             Not affiliated with Rockstar Games or Take-Two Interactive.
           </p>
+          <div
+            data-testid="footer-live-status"
+            className="mt-6 inline-flex items-center gap-3 text-[10px] uppercase tracking-[0.28em] text-zinc-500 border border-white/10 rounded-full px-3 py-1.5"
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${status.live ? "bg-[#05D9E8] pulse-dot" : "bg-zinc-600"}`}
+            />
+            {status.live ? (
+              <>
+                Newswire live · {status.count.toLocaleString()} filed
+                {status.lastAt && (
+                  <span className="text-zinc-600">· last {timeAgo(status.lastAt)}</span>
+                )}
+              </>
+            ) : (
+              <>Newswire warming up</>
+            )}
+          </div>
         </div>
 
         <div>
@@ -38,9 +80,11 @@ export const Footer = () => {
           </p>
           <ul className="space-y-3 text-sm">
             <li><Link to="/news" className="text-zinc-300 hover:text-white">News</Link></li>
+            <li><Link to="/intel" className="text-zinc-300 hover:text-white">Live Intel</Link></li>
             <li><Link to="/characters" className="text-zinc-300 hover:text-white">Characters</Link></li>
             <li><Link to="/locations" className="text-zinc-300 hover:text-white">Locations</Link></li>
             <li><Link to="/vehicles" className="text-zinc-300 hover:text-white">Vehicles</Link></li>
+            <li><Link to="/arsenal" className="text-zinc-300 hover:text-white">Arsenal</Link></li>
           </ul>
         </div>
         <div>
@@ -48,6 +92,7 @@ export const Footer = () => {
             Media
           </p>
           <ul className="space-y-3 text-sm">
+            <li><Link to="/markets" className="text-zinc-300 hover:text-white">Markets</Link></li>
             <li><Link to="/trailers" className="text-zinc-300 hover:text-white">Trailers</Link></li>
             <li><Link to="/soundtrack" className="text-zinc-300 hover:text-white">Soundtrack</Link></li>
           </ul>

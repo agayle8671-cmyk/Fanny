@@ -1,0 +1,48 @@
+// Tiny fetch wrapper around the Leonida Vice backend.
+const BASE = process.env.REACT_APP_BACKEND_URL || "";
+
+async function get(path) {
+  try {
+    const res = await fetch(`${BASE}/api${path}`, { headers: { Accept: "application/json" } });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (_e) {
+    return null;
+  }
+}
+
+export const api = {
+  listArticles: ({ category, limit = 12, offset = 0 } = {}) => {
+    const params = new URLSearchParams({ limit, offset });
+    if (category) params.set("category", category);
+    return get(`/articles?${params.toString()}`);
+  },
+  trending: (limit = 10) => get(`/articles/trending?limit=${limit}`),
+  article: (slug) => get(`/articles/${slug}`),
+};
+
+// Helpers
+export const timeAgo = (iso) => {
+  if (!iso) return "";
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diffMs / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d ago`;
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+};
+
+export const fallbackThumb = (idx = 0) => {
+  const pool = [
+    "https://images.unsplash.com/photo-1666032800277-607511d3869a?q=80&w=2400",
+    "https://images.unsplash.com/photo-1670811456186-e73d0ace9454?q=80&w=2400",
+    "https://images.unsplash.com/photo-1533106497176-45ae19e68ba2?q=80&w=2400",
+    "https://images.unsplash.com/photo-1589066724013-06f34f2cc17c?q=80&w=2400",
+    "https://images.unsplash.com/photo-1582987144051-9031c6a85290?q=80&w=2400",
+    "https://images.unsplash.com/photo-1629935635086-1855c8d125cc?q=80&w=2400",
+  ];
+  return pool[idx % pool.length];
+};

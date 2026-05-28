@@ -10,6 +10,7 @@ import { HeroCarousel } from "../components/HeroCarousel";
 import { MarqueeStrip } from "../components/MarqueeStrip";
 import { ByTheNumbers } from "../components/ByTheNumbers";
 import { ShareWidget } from "../components/ShareWidget";
+import { NewswireRail } from "../components/NewswireRail";
 import { articles } from "../data/articles";
 import { characters } from "../data/characters";
 import { locations } from "../data/locations";
@@ -112,6 +113,9 @@ const Home = () => {
 
       {/* BY THE NUMBERS — IMDb data density */}
       <ByTheNumbers />
+
+      {/* NEWSWIRE — live scraped intel */}
+      <NewswireRail />
 
       {/* FEATURED EDITORIAL — Cover Story */}
       <section className="py-24 border-b border-white/5 relative">

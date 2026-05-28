@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, Clock } from "lucide-react";
 import { getArticle, articles } from "../data/articles";
 import { ReadingProgress } from "../components/ReadingProgress";
 import { ShareWidget } from "../components/ShareWidget";
+import { ArticleTOC, slugify } from "../components/ArticleTOC";
 
 const Article = () => {
   const { slug } = useParams();
@@ -118,7 +119,8 @@ const Article = () => {
               return (
                 <h2
                   key={i}
-                  className="font-display uppercase text-3xl md:text-4xl text-white tracking-[0.02em] mt-16 mb-6"
+                  id={slugify(block.text)}
+                  className="font-display uppercase text-3xl md:text-4xl text-white tracking-[0.02em] mt-16 mb-6 scroll-mt-32"
                 >
                   <span className="inline-block border-l-4 border-[#FF2A6D] pl-4">
                     {block.text}

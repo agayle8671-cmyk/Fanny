@@ -13,8 +13,12 @@ import CharacterDetail from "./pages/CharacterDetail";
 import Locations from "./pages/Locations";
 import LocationDetail from "./pages/LocationDetail";
 import Vehicles from "./pages/Vehicles";
+import Arsenal from "./pages/Arsenal";
+import Markets from "./pages/Markets";
+import Intel from "./pages/Intel";
 import Trailers from "./pages/Trailers";
 import Soundtrack from "./pages/Soundtrack";
+import NotFound from "./pages/NotFound";
 
 const ScrollToTop = () => {
   const { pathname } = useLocation();
@@ -42,8 +46,12 @@ function App() {
               <Route path="/locations" element={<Locations />} />
               <Route path="/locations/:slug" element={<LocationDetail />} />
               <Route path="/vehicles" element={<Vehicles />} />
+              <Route path="/arsenal" element={<Arsenal />} />
+              <Route path="/markets" element={<Markets />} />
+              <Route path="/intel" element={<Intel />} />
               <Route path="/trailers" element={<Trailers />} />
               <Route path="/soundtrack" element={<Soundtrack />} />
+              <Route path="*" element={<NotFound />} />
             </Routes>
           </PageTransition>
         </main>
