@@ -68,8 +68,6 @@
       radial-gradient(900px 700px at -10% 20%, rgba(5, 217, 232, 0.05), transparent 60%),
       var(--bg-primary);
     min-height: 100vh;
-    /* Ensure layers composite on GPU */
-    backface-visibility: hidden;
   }
   img {
     /* Images render crisp without layout thrash */

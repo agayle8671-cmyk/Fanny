@@ -10,18 +10,19 @@ export const ScrollReveal = ({
   once = true,
 }) => {
   const ref = useRef(null);
-  const [isIntersecting, setIsIntersecting] = useState(false);
+  const [state, setState] = useState("hidden"); // "hidden" | "animating" | "visible"
 
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
-          setIsIntersecting(true);
+          // Mark as animating — this activates will-change for the paint
+          setState("animating");
           if (once && ref.current) {
             observer.unobserve(ref.current);
           }
         } else if (!once) {
-          setIsIntersecting(false);
+          setState("hidden");
         }
       },
       { threshold }
@@ -39,32 +40,37 @@ export const ScrollReveal = ({
     };
   }, [threshold, once]);
 
+  // After animation completes, free the GPU layer by resetting will-change
+  useEffect(() => {
+    if (state !== "animating") return;
+    const totalDuration = (duration + delay) * 1000 + 100; // +100ms buffer
+    const timer = setTimeout(() => setState("visible"), totalDuration);
+    return () => clearTimeout(timer);
+  }, [state, duration, delay]);
+
+  const isHidden = state === "hidden";
+
   const getTransform = () => {
-    if (!isIntersecting) {
-      switch (direction) {
-        case "up":
-          return "translateY(24px)";
-        case "down":
-          return "translateY(-24px)";
-        case "left":
-          return "translateX(24px)";
-        case "right":
-          return "translateX(-24px)";
-        case "zoom":
-          return "scale(0.96)";
-        case "fade":
-        default:
-          return "none";
-      }
+    if (!isHidden) return "none";
+    switch (direction) {
+      case "up":    return "translateY(20px)";
+      case "down":  return "translateY(-20px)";
+      case "left":  return "translateX(20px)";
+      case "right": return "translateX(-20px)";
+      case "zoom":  return "scale(0.97)";
+      case "fade":
+      default:      return "none";
     }
-    return "none";
   };
 
   const style = {
-    opacity: isIntersecting ? 1 : 0,
+    opacity: isHidden ? 0 : 1,
     transform: getTransform(),
-    transition: `opacity ${duration}s cubic-bezier(0.16, 1, 0.3, 1) ${delay}s, transform ${duration}s cubic-bezier(0.16, 1, 0.3, 1) ${delay}s`,
-    willChange: "opacity, transform",
+    transition: isHidden
+      ? "none"
+      : `opacity ${duration}s cubic-bezier(0.16, 1, 0.3, 1) ${delay}s, transform ${duration}s cubic-bezier(0.16, 1, 0.3, 1) ${delay}s`,
+    // will-change only while compositing; reset to 'auto' once done to free GPU layers
+    willChange: state === "animating" ? "opacity, transform" : "auto",
   };
 
   return (
