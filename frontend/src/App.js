@@ -1,51 +1,48 @@
 import { useEffect } from "react";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
+import { Navbar } from "./components/Navbar";
+import { Footer } from "./components/Footer";
+import Home from "./pages/Home";
+import News from "./pages/News";
+import Article from "./pages/Article";
+import Characters from "./pages/Characters";
+import CharacterDetail from "./pages/CharacterDetail";
+import Locations from "./pages/Locations";
+import LocationDetail from "./pages/LocationDetail";
+import Vehicles from "./pages/Vehicles";
+import Trailers from "./pages/Trailers";
+import Soundtrack from "./pages/Soundtrack";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
-
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
-
+const ScrollToTop = () => {
+  const { pathname } = useLocation();
   useEffect(() => {
-    helloWorldApi();
-  }, []);
-
-  return (
-    <div>
-      <header className="App-header">
-        <a
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [pathname]);
+  return null;
 };
 
 function App() {
   return (
-    <div className="App">
+    <div className="App min-h-screen bg-[#050505] text-white">
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
+        <ScrollToTop />
+        <Navbar />
+        <main>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/news" element={<News />} />
+            <Route path="/news/:slug" element={<Article />} />
+            <Route path="/characters" element={<Characters />} />
+            <Route path="/characters/:slug" element={<CharacterDetail />} />
+            <Route path="/locations" element={<Locations />} />
+            <Route path="/locations/:slug" element={<LocationDetail />} />
+            <Route path="/vehicles" element={<Vehicles />} />
+            <Route path="/trailers" element={<Trailers />} />
+            <Route path="/soundtrack" element={<Soundtrack />} />
+          </Routes>
+        </main>
+        <Footer />
       </BrowserRouter>
     </div>
   );
