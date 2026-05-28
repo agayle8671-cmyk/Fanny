@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import "@/App.css";
 import { Navbar } from "./components/Navbar";
 import { Footer } from "./components/Footer";
+import { FloatingShareButton } from "./components/ShareWidget";
 import Home from "./pages/Home";
 import News from "./pages/News";
 import Article from "./pages/Article";
@@ -42,6 +43,7 @@ function App() {
             <Route path="/soundtrack" element={<Soundtrack />} />
           </Routes>
         </main>
+        <FloatingShareButton />
         <Footer />
       </BrowserRouter>
     </div>

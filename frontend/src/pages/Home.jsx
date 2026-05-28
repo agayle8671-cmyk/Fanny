@@ -9,6 +9,7 @@ import { LocationCard } from "../components/LocationCard";
 import { HeroCarousel } from "../components/HeroCarousel";
 import { MarqueeStrip } from "../components/MarqueeStrip";
 import { ByTheNumbers } from "../components/ByTheNumbers";
+import { ShareWidget } from "../components/ShareWidget";
 import { articles } from "../data/articles";
 import { characters } from "../data/characters";
 import { locations } from "../data/locations";
@@ -259,6 +260,9 @@ const Home = () => {
           </div>
         </div>
       </section>
+
+      {/* SHARE WIDGET — viral CTA */}
+      <ShareWidget variant="section" />
 
       {/* CTA / RELEASE MARQUEE */}
       <section className="relative py-32 border-t border-white/5 overflow-hidden">
