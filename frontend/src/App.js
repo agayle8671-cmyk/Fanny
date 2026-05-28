@@ -4,6 +4,7 @@ import "@/App.css";
 import { Navbar } from "./components/Navbar";
 import { Footer } from "./components/Footer";
 import { FloatingShareButton } from "./components/ShareWidget";
+import { PageProgress, PageTransition } from "./components/PageProgress";
 import Home from "./pages/Home";
 import News from "./pages/News";
 import Article from "./pages/Article";
@@ -28,20 +29,23 @@ function App() {
     <div className="App min-h-screen bg-[#050505] text-white">
       <BrowserRouter>
         <ScrollToTop />
+        <PageProgress />
         <Navbar />
         <main>
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/news" element={<News />} />
-            <Route path="/news/:slug" element={<Article />} />
-            <Route path="/characters" element={<Characters />} />
-            <Route path="/characters/:slug" element={<CharacterDetail />} />
-            <Route path="/locations" element={<Locations />} />
-            <Route path="/locations/:slug" element={<LocationDetail />} />
-            <Route path="/vehicles" element={<Vehicles />} />
-            <Route path="/trailers" element={<Trailers />} />
-            <Route path="/soundtrack" element={<Soundtrack />} />
-          </Routes>
+          <PageTransition>
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/news" element={<News />} />
+              <Route path="/news/:slug" element={<Article />} />
+              <Route path="/characters" element={<Characters />} />
+              <Route path="/characters/:slug" element={<CharacterDetail />} />
+              <Route path="/locations" element={<Locations />} />
+              <Route path="/locations/:slug" element={<LocationDetail />} />
+              <Route path="/vehicles" element={<Vehicles />} />
+              <Route path="/trailers" element={<Trailers />} />
+              <Route path="/soundtrack" element={<Soundtrack />} />
+            </Routes>
+          </PageTransition>
         </main>
         <FloatingShareButton />
         <Footer />

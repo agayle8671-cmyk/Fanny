@@ -119,7 +119,7 @@ export const Navbar = () => {
       {open && (
         <div
           data-testid="mobile-nav-panel"
-          className="lg:hidden border-t border-white/10 bg-[#050505]/95 backdrop-blur-xl"
+          className="lg:hidden border-t border-white/10 bg-[#050505]/95 backdrop-blur-xl animate-slide-down"
         >
           <div className="px-6 py-4 flex flex-col gap-3">
             {navLinks.map((l) => (

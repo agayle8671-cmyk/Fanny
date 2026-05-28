@@ -1,7 +1,9 @@
+import { ScrollReveal } from "./ScrollReveal";
+
 // IMDb-style data density bento — "By The Numbers" at-a-glance grid.
 const cells = [
   {
-    value: "2.5×",
+    value: "2.5\u00D7",
     label: "Map Size vs. Los Santos",
     accent: "#FF2A6D",
     size: "lg",
@@ -23,7 +25,7 @@ const cells = [
   },
   {
     value: "30",
-    label: "FPS · Base Console Target",
+    label: "FPS \u00B7 Base Console Target",
     accent: "#FFFFFF",
     size: "sm",
     note: "Fidelity-first. Performance mode TBA.",
@@ -37,7 +39,7 @@ const cells = [
   },
   {
     value: "11.19.26",
-    label: "Worldwide Launch · PS5 · Xbox X|S",
+    label: "Worldwide Launch \u00B7 PS5 \u00B7 Xbox X|S",
     accent: "#FF2A6D",
     size: "lg",
     note: "After two delays. No PC date confirmed.",
@@ -57,31 +59,39 @@ export const ByTheNumbers = () => {
       className="relative py-24 border-y border-white/5 bg-[#070708]"
     >
       <div className="max-w-[1400px] mx-auto px-6 md:px-12">
-        <div className="flex items-end justify-between flex-wrap gap-6 mb-10">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.4em] text-[#05D9E8] font-semibold mb-3">
-              The Data Room
+        <ScrollReveal direction="up" duration={0.8}>
+          <div className="flex items-end justify-between flex-wrap gap-6 mb-10">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.4em] text-[#05D9E8] font-semibold mb-3">
+                The Data Room
+              </p>
+              <h2 className="font-display uppercase text-4xl md:text-6xl text-white leading-[0.95]">
+                GTA VI <span className="text-zinc-500">/</span> By The Numbers
+              </h2>
+            </div>
+            <p className="font-editorial italic text-zinc-400 max-w-md text-lg">
+              The vital stats of the most anticipated entertainment release of the
+              decade — at a glance.
             </p>
-            <h2 className="font-display uppercase text-4xl md:text-6xl text-white leading-[0.95]">
-              GTA VI <span className="text-zinc-500">/</span> By The Numbers
-            </h2>
           </div>
-          <p className="font-editorial italic text-zinc-400 max-w-md text-lg">
-            The vital stats of the most anticipated entertainment release of the
-            decade — at a glance.
-          </p>
-        </div>
+        </ScrollReveal>
         <div className="grid grid-cols-2 md:grid-cols-4 md:grid-rows-2 gap-3 auto-rows-[160px] md:auto-rows-[180px]">
           {cells.map((c, i) => (
-            <div
+            <ScrollReveal
               key={i}
-              data-testid={`number-cell-${i}`}
-              className={`group relative overflow-hidden rounded-lg border border-white/10 bg-white/[0.02] hover:bg-white/[0.05] transition-all duration-300 p-5 md:p-7 flex flex-col justify-between ${sizeMap[c.size]}`}
+              direction="zoom"
+              delay={i * 0.08}
+              duration={0.7}
+              className={sizeMap[c.size]}
             >
               <div
-                className="absolute -right-10 -top-10 h-32 w-32 rounded-full blur-3xl opacity-30 group-hover:opacity-60 transition"
-                style={{ background: c.accent }}
-              />
+                data-testid={`number-cell-${i}`}
+                className="group relative overflow-hidden rounded-lg border border-white/10 bg-white/[0.02] hover:bg-white/[0.05] transition-all duration-300 p-5 md:p-7 flex flex-col justify-between h-full"
+              >
+                <div
+                  className="absolute -right-10 -top-10 h-32 w-32 rounded-full blur-3xl opacity-30 group-hover:opacity-60 transition"
+                  style={{ background: c.accent }}
+                />
               <div className="relative">
                 <div
                   className="font-display leading-[0.85] tabular-nums"
@@ -105,6 +115,7 @@ export const ByTheNumbers = () => {
                 {c.note}
               </p>
             </div>
+            </ScrollReveal>
           ))}
         </div>
       </div>

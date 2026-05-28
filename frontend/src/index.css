@@ -56,8 +56,11 @@
     font-family: "Outfit", system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
     margin: 0;
     padding: 0;
+    /* GPU-accelerated scrolling */
+    -webkit-overflow-scrolling: touch;
   }
   body {
     background:
@@ -65,6 +68,13 @@
       radial-gradient(900px 700px at -10% 20%, rgba(5, 217, 232, 0.05), transparent 60%),
       var(--bg-primary);
     min-height: 100vh;
+    /* Ensure layers composite on GPU */
+    backface-visibility: hidden;
+  }
+  img {
+    /* Images render crisp without layout thrash */
+    max-width: 100%;
+    height: auto;
   }
 }
 
@@ -197,6 +207,30 @@ html {
 .delay-300 { animation-delay: 0.3s; }
 .delay-500 { animation-delay: 0.5s; }
 .delay-700 { animation-delay: 0.7s; }
+
+/* Route entry animation */
+@keyframes pageEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-page-enter {
+  animation: pageEnter 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Mobile nav slide-in */
+@keyframes slideDown {
+  0% { opacity: 0; transform: translateY(-12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-down {
+  animation: slideDown 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
 
 /* Pulse for countdown */
 @keyframes pulseDot {
