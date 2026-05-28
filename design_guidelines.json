@@ -1,0 +1,128 @@
+{
+  "project_name": "Leonida Vice",
+  "theme": "DARK",
+  "archetype": "Archetype 5 (Luxury/Cinematic)",
+  "aesthetic": "Tropical Noir / Epic Gaming Media. High visual impact, cinematic full-bleed imagery, strong editorial typography, immersive scrolling.",
+  "design_principles": [
+    "Dark mode first: Default reading environment is deep midnight to make neon and sunset imagery pop.",
+    "Cinematic scale: Oversized hero typography, heavy use of negative space, full-bleed imagery.",
+    "Bento modularity: For data-heavy pages (IMDb style), use structured bento grids with 1px subtle borders.",
+    "Progressive disclosure: Netflix-style horizontal rails keep the homepage clean while offering deep content on hover."
+  ],
+  "colors": {
+    "background": {
+      "primary": "#050505",
+      "secondary": "#0A0A0C",
+      "surface": "#121216",
+      "surface_hover": "#1C1C22"
+    },
+    "text": {
+      "primary": "#F9F9FA",
+      "secondary": "#A1A1AA",
+      "muted": "#71717A"
+    },
+    "brand": {
+      "vice_pink": "#FF2A6D",
+      "cyan_edge": "#05D9E8",
+      "sunset_orange": "#FF7B00"
+    },
+    "borders": {
+      "default": "rgba(255, 255, 255, 0.08)",
+      "highlight": "rgba(255, 255, 255, 0.15)"
+    }
+  },
+  "typography": {
+    "fonts": {
+      "headings": "'Bebas Neue', sans-serif",
+      "editorial": "'Playfair Display', serif",
+      "body": "'Outfit', sans-serif"
+    },
+    "scales": {
+      "h1_hero": "text-7xl md:text-8xl tracking-tight uppercase",
+      "h2_section": "text-4xl md:text-5xl tracking-tight uppercase",
+      "h3_card": "text-2xl tracking-wide uppercase",
+      "article_title": "text-5xl md:text-7xl font-serif leading-tight",
+      "body_text": "text-lg leading-relaxed text-zinc-300"
+    }
+  },
+  "components": {
+    "netflix_horizontal_rail": {
+      "container": "flex overflow-x-auto snap-x snap-mandatory gap-4 pb-8 hide-scrollbar",
+      "card": "relative flex-none w-[280px] md:w-[320px] aspect-[16/9] snap-center rounded-lg overflow-hidden group cursor-pointer border border-white/5 bg-zinc-900 transition-all duration-300 hover:scale-105 hover:z-10 hover:shadow-2xl hover:shadow-pink-500/20",
+      "card_image": "absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 opacity-70 group-hover:opacity-100",
+      "card_overlay": "absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent",
+      "card_content": "absolute bottom-0 p-4 w-full transform transition-transform duration-300 translate-y-4 group-hover:translate-y-0",
+      "card_metadata": "opacity-0 group-hover:opacity-100 transition-opacity duration-300 text-sm text-zinc-400 mt-2 flex gap-2 items-center"
+    },
+    "gamespot_article": {
+      "hero_section": "relative w-full h-[70vh] min-h-[500px] flex flex-col justify-end pb-16 px-4 md:px-12 lg:px-24",
+      "hero_overlay": "absolute inset-0 bg-gradient-to-t from-[#050505] via-[#050505]/60 to-transparent z-10",
+      "article_container": "max-w-3xl mx-auto px-4 py-12 text-lg leading-relaxed text-zinc-300",
+      "drop_cap": "float-left text-7xl font-serif text-white mr-4 mt-2 leading-none",
+      "pull_quote": "border-l-4 border-[#FF2A6D] pl-6 my-10 py-2 text-3xl font-serif text-white italic",
+      "inline_image": "w-full my-12 rounded-xl overflow-hidden border border-white/10"
+    },
+    "imdb_data_profile": {
+      "container": "max-w-7xl mx-auto px-4 py-12 grid grid-cols-1 md:grid-cols-12 gap-8",
+      "left_rail": "md:col-span-4 lg:col-span-3",
+      "main_content": "md:col-span-8 lg:col-span-9 space-y-8",
+      "data_table": "w-full text-left border-collapse",
+      "data_row": "border-b border-white/10 py-4 flex flex-col sm:flex-row sm:gap-4",
+      "data_label": "text-zinc-500 uppercase tracking-wider text-sm w-48 font-semibold",
+      "data_value": "text-white font-medium"
+    },
+    "hero_billboard": {
+      "container": "relative w-full h-screen min-h-[600px] flex items-center",
+      "image_wrapper": "absolute inset-0 z-0",
+      "overlay": "absolute inset-0 bg-gradient-to-r from-black/90 via-black/50 to-transparent z-10",
+      "content": "relative z-20 max-w-4xl px-8 md:px-16 space-y-6"
+    }
+  },
+  "layout_and_spacing": {
+    "nav_bar": "fixed top-0 w-full z-50 bg-[#050505]/80 backdrop-blur-xl border-b border-white/10 py-4 px-8",
+    "section_spacing": "py-24",
+    "grid_system": "Use subgrid where possible for data density. Otherwise standard 12-col grid gap-6."
+  },
+  "media": {
+    "hero_backgrounds": [
+      "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/6dccb50f1f97f2f4f27319ab01773127d24f381cb080704869c46c535155b382.png",
+      "https://images.unsplash.com/photo-1533106497176-45ae19e68ba2",
+      "https://images.unsplash.com/photo-1589066724013-06f34f2cc17c"
+    ],
+    "characters": [
+      "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/18ea9848372b348f0168b03c23d7b02531d161f51b1f30a4a089c2374b0e293c.png",
+      "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/8f27bda64f64ebd6453620848c5ec42959dae5b3db7d13932e1b573769470f79.png"
+    ],
+    "locations": [
+      "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/ae2eed57d440780a1f078afeebd3b1bae37e62cd78c5b7059219bae00fc8d7f9.png",
+      "https://images.unsplash.com/photo-1628027927481-a528c344ae7b",
+      "https://images.unsplash.com/photo-1605723517503-3cadb5818a0c",
+      "https://images.unsplash.com/photo-1611601147557-cdc89476ec4a"
+    ],
+    "vehicles": [
+      "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/5901c6d5da9521145470f55d63b2fb41f95461de82f9c24102cc3ef2c388793b.png",
+      "https://images.unsplash.com/photo-1629934844513-df3e988a0157",
+      "https://images.unsplash.com/photo-1596639410348-8470f7fa9f84",
+      "https://images.unsplash.com/photo-1629935389411-1bb0ae0d1ffe"
+    ],
+    "news_thumbnails": [
+      "https://images.unsplash.com/photo-1666032800277-607511d3869a",
+      "https://images.unsplash.com/photo-1582987144051-9031c6a85290",
+      "https://images.pexels.com/photos/5214418/pexels-photo-5214418.jpeg",
+      "https://images.pexels.com/photos/5322558/pexels-photo-5322558.jpeg",
+      "https://images.unsplash.com/photo-1670811456186-e73d0ace9454",
+      "https://images.unsplash.com/photo-1629935635086-1855c8d125cc"
+    ]
+  },
+  "instructions_to_main_agent": [
+    "DO NOT USE INTER. Install and use 'Bebas Neue' for Display, 'Playfair Display' for Editorial Serifs, and 'Outfit' for body.",
+    "Data structure for the site should heavily rely on seed data. Create robust JSON mock data for Articles, Characters, Locations, and Vehicles.",
+    "For the Landing page, implement the 'hero_billboard' class specs, followed by multiple 'netflix_horizontal_rail' carousels (News, Characters, Locations, Vehicles).",
+    "For the Article pages, implement the 'gamespot_article' specs. The hero image MUST sit behind the title, bleeding to the edges. Ensure drop caps and pull quotes use the editorial serif font.",
+    "For Character/Vehicle details, implement 'imdb_data_profile'. Use strict bento grids and key-value borders to achieve data density.",
+    "Hover states are critical for the Netflix-style rails. Ensure the transition-all duration-300 hover:scale-105 is applied so cards pop out.",
+    "Never use generic placeholder images. Map the provided media URLs to the seed data.",
+    "All interactive elements MUST have data-testid attributes (e.g., data-testid='nav-articles-link').",
+    "Since Shadcn is meant for admin dashboards, rely on raw Tailwind for the landing, article, and profile layouts to get the exact asymmetrical/editorial look. Use Shadcn ONLY for things like dropdowns, modals, or forms if needed."
+  ]
+}
