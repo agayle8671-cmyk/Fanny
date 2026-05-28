@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Play, ArrowRight } from "lucide-react";
 import { Countdown } from "../components/Countdown";
@@ -5,6 +6,9 @@ import { HorizontalRail } from "../components/HorizontalRail";
 import { ArticleCard } from "../components/ArticleCard";
 import { CharacterCard } from "../components/CharacterCard";
 import { LocationCard } from "../components/LocationCard";
+import { HeroCarousel } from "../components/HeroCarousel";
+import { MarqueeStrip } from "../components/MarqueeStrip";
+import { ByTheNumbers } from "../components/ByTheNumbers";
 import { articles } from "../data/articles";
 import { characters } from "../data/characters";
 import { locations } from "../data/locations";
@@ -12,24 +16,30 @@ import { vehicles } from "../data/vehicles";
 import { gameInfo } from "../data/gameInfo";
 
 const Home = () => {
-  const heroArticle = articles[0];
+  const [, setActiveSlide] = useState(0);
 
   return (
     <div data-testid="home-page" className="bg-[#050505] text-white">
-      {/* HERO BILLBOARD */}
+      {/* HERO BILLBOARD — rotating, Ken Burns */}
       <section
         data-testid="home-hero"
-        className="relative w-full min-h-[100vh] flex items-end overflow-hidden scanline"
+        className="relative w-full min-h-[100vh] flex items-end overflow-hidden scanline vignette"
       >
-        <div className="absolute inset-0 z-0 grain">
-          <img
-            src={heroArticle.heroImage}
-            alt="Vice City sunset hero"
-            className="w-full h-full object-cover"
-          />
-        </div>
+        <HeroCarousel onSlideChange={(_, i) => setActiveSlide(i)} />
+
         <div className="absolute inset-0 z-10 side-overlay" />
         <div className="absolute inset-0 z-10 bg-gradient-to-t from-[#050505] via-transparent to-[#050505]/40" />
+
+        {/* Vertical edge label — magazine flourish */}
+        <div className="hidden md:flex absolute left-6 top-1/2 -translate-y-1/2 z-20 flex-col items-center gap-4 text-[10px] uppercase tracking-[0.4em] text-zinc-400">
+          <span
+            className="rotate-180"
+            style={{ writingMode: "vertical-rl" }}
+          >
+            Leonida Vice · Cover Story · Vol. 01
+          </span>
+          <span className="h-16 w-px bg-zinc-700" />
+        </div>
 
         <div className="relative z-20 w-full max-w-[1400px] mx-auto px-6 md:px-12 pb-24 pt-40">
           <div className="max-w-3xl space-y-7">
@@ -44,7 +54,8 @@ const Home = () => {
               The Most <br />
               <span
                 style={{
-                  background: "linear-gradient(90deg, #FF2A6D 0%, #FF7B00 50%, #05D9E8 100%)",
+                  background:
+                    "linear-gradient(90deg, #FF2A6D 0%, #FF7B00 50%, #05D9E8 100%)",
                   WebkitBackgroundClip: "text",
                   WebkitTextFillColor: "transparent",
                 }}
@@ -81,8 +92,26 @@ const Home = () => {
         </div>
       </section>
 
-      {/* FEATURED EDITORIAL */}
-      <section className="py-20 border-b border-white/5">
+      {/* MARQUEE STRIP — editorial flourish */}
+      <MarqueeStrip
+        testid="home-marquee"
+        accent="#FF2A6D"
+        items={[
+          "Welcome to Leonida",
+          "November 19, 2026",
+          "Vice City Reawakens",
+          "Lucia & Jason",
+          "The State of Leonida",
+          "PS5 · Xbox Series X|S",
+          "Two Protagonists, One Conspiracy",
+        ]}
+      />
+
+      {/* BY THE NUMBERS — IMDb data density */}
+      <ByTheNumbers />
+
+      {/* FEATURED EDITORIAL — Cover Story */}
+      <section className="py-24 border-b border-white/5 relative">
         <div className="max-w-[1400px] mx-auto px-6 md:px-12 grid md:grid-cols-12 gap-10 items-center">
           <Link
             to={`/news/${articles[1].slug}`}
@@ -95,9 +124,18 @@ const Home = () => {
               className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
             />
             <div className="absolute inset-0 hero-overlay" />
+            {/* Cover Story stamp */}
+            <div className="absolute top-5 left-5 flex items-center gap-3">
+              <span className="font-display text-xs tracking-[0.35em] uppercase text-white bg-[#FF2A6D] px-3 py-1.5">
+                Cover Story
+              </span>
+              <span className="text-[10px] uppercase tracking-[0.3em] text-zinc-200">
+                Issue 06
+              </span>
+            </div>
             <div className="absolute bottom-0 left-0 p-8">
               <span className="text-[10px] uppercase tracking-[0.3em] text-[#FF2A6D] font-semibold">
-                Editor's Pick · {articles[1].category}
+                {articles[1].category}
               </span>
             </div>
           </Link>
@@ -108,12 +146,18 @@ const Home = () => {
             <h2 className="font-editorial text-4xl md:text-5xl text-white leading-tight">
               {articles[1].title}
             </h2>
-            <p className="text-zinc-400 text-lg leading-relaxed">{articles[1].dek}</p>
+            <p className="text-zinc-400 text-lg leading-relaxed">
+              {articles[1].dek}
+            </p>
             <Link
               to={`/news/${articles[1].slug}`}
-              className="inline-flex items-center gap-3 text-[#FF2A6D] uppercase tracking-[0.25em] text-xs font-semibold hover:text-white transition"
+              className="inline-flex items-center gap-3 text-[#FF2A6D] uppercase tracking-[0.25em] text-xs font-semibold hover:text-white transition group/cta"
             >
-              Read the Feature <ArrowRight size={14} />
+              <span className="relative">
+                Read the Feature
+                <span className="absolute -bottom-1 left-0 h-px w-0 bg-current group-hover/cta:w-full transition-all duration-300" />
+              </span>
+              <ArrowRight size={14} />
             </Link>
           </div>
         </div>
@@ -125,8 +169,8 @@ const Home = () => {
         title="Latest from the Newsroom"
         subtitle="Long-form editorial on the most anticipated game of the decade. Updated weekly."
       >
-        {articles.map((a) => (
-          <ArticleCard key={a.slug} article={a} />
+        {articles.map((a, i) => (
+          <ArticleCard key={a.slug} article={a} index={i} />
         ))}
       </HorizontalRail>
 
@@ -141,6 +185,24 @@ const Home = () => {
         ))}
       </HorizontalRail>
 
+      {/* SECOND MARQUEE — character litany */}
+      <MarqueeStrip
+        testid="home-marquee-2"
+        accent="#05D9E8"
+        items={[
+          "Lucia Caminos",
+          "Jason Duval",
+          "Brian Heder",
+          "Cal Hampton",
+          "Boobie Ike",
+          "Raul Bautista",
+          "Dre'Quan Priest",
+          "Real Dimez",
+          "Stefanie",
+          "Phil Cassidy",
+        ]}
+      />
+
       {/* LOCATIONS RAIL */}
       <HorizontalRail
         testid="rail-locations"
@@ -153,7 +215,7 @@ const Home = () => {
       </HorizontalRail>
 
       {/* VEHICLES STRIP */}
-      <section className="py-20 border-t border-white/5">
+      <section className="py-24 border-t border-white/5">
         <div className="max-w-[1400px] mx-auto px-6 md:px-12">
           <div className="flex items-end justify-between mb-10">
             <div>

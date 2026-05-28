@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { Menu, X } from "lucide-react";
+import { gameInfo } from "../data/gameInfo";
 
 const navLinks = [
   { to: "/", label: "Home", testid: "nav-home-link" },
@@ -12,10 +13,25 @@ const navLinks = [
   { to: "/soundtrack", label: "Soundtrack", testid: "nav-soundtrack-link" },
 ];
 
+const useDaysLeft = () => {
+  const [days, setDays] = useState(0);
+  useEffect(() => {
+    const calc = () => {
+      const diff = new Date(gameInfo.releaseDate).getTime() - Date.now();
+      setDays(Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24))));
+    };
+    calc();
+    const id = setInterval(calc, 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+  return days;
+};
+
 export const Navbar = () => {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
   const location = useLocation();
+  const days = useDaysLeft();
 
   useEffect(() => {
     const handler = () => setScrolled(window.scrollY > 30);
@@ -34,18 +50,27 @@ export const Navbar = () => {
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
         scrolled
           ? "bg-[#050505]/85 backdrop-blur-xl border-b border-white/10"
-          : "bg-gradient-to-b from-[#050505]/80 to-transparent"
+          : "bg-gradient-to-b from-[#050505]/85 to-transparent"
       }`}
     >
+      {/* Masthead micro-strip */}
+      <div
+        data-testid="masthead-strip"
+        className="hidden md:flex items-center justify-between px-8 py-1.5 text-[10px] uppercase tracking-[0.3em] text-zinc-500 border-b border-white/[0.06] bg-black/40"
+      >
+        <span>Vol. 01 · Issue 06 · Feb 2026</span>
+        <span className="flex items-center gap-2 text-zinc-300">
+          <span className="h-1.5 w-1.5 rounded-full bg-[#FF2A6D] pulse-dot" />
+          {days} Days Until Leonida
+        </span>
+        <span>Editorial · Atlas · Garage · Frequencies</span>
+      </div>
+
       <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-4 flex items-center justify-between">
-        <Link
-          to="/"
-          data-testid="nav-logo-link"
-          className="flex items-center gap-2 group"
-        >
+        <Link to="/" data-testid="nav-logo-link" className="flex items-center gap-2 group">
           <div className="relative">
             <span
-              className="font-display text-2xl md:text-3xl tracking-[0.04em] text-white leading-none"
+              className="font-display text-2xl md:text-3xl tracking-[0.04em] leading-none"
               style={{
                 background: "linear-gradient(90deg, #FF2A6D 0%, #FF7B00 100%)",
                 WebkitBackgroundClip: "text",
@@ -72,9 +97,7 @@ export const Navbar = () => {
               data-testid={l.testid}
               className={({ isActive }) =>
                 `text-[12px] uppercase tracking-[0.22em] font-semibold transition-colors duration-200 ${
-                  isActive
-                    ? "text-white"
-                    : "text-zinc-400 hover:text-white"
+                  isActive ? "text-white" : "text-zinc-400 hover:text-white"
                 }`
               }
             >

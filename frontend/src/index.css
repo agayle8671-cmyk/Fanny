@@ -206,3 +206,38 @@ html {
 .pulse-dot {
   animation: pulseDot 1.6s ease-in-out infinite;
 }
+
+/* Slow Ken-Burns zoom for hero carousel */
+@keyframes kenburns {
+  0%   { transform: scale(1) translate3d(0, 0, 0); }
+  100% { transform: scale(1.12) translate3d(-1.5%, -1.5%, 0); }
+}
+.animate-kenburns {
+  animation: kenburns 9s ease-out forwards;
+}
+
+/* Infinite editorial marquee */
+@keyframes marquee {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.animate-marquee {
+  animation: marquee 38s linear infinite;
+  width: max-content;
+}
+.animate-marquee:hover {
+  animation-play-state: paused;
+}
+
+/* Subtle CRT vignette */
+.vignette::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 55%,
+    rgba(0, 0, 0, 0.55) 100%
+  );
+}
