@@ -38,9 +38,11 @@ export const Footer = () => {
           </p>
           <ul className="space-y-3 text-sm">
             <li><Link to="/news" className="text-zinc-300 hover:text-white">News</Link></li>
+            <li><Link to="/intel" className="text-zinc-300 hover:text-white">Live Intel</Link></li>
             <li><Link to="/characters" className="text-zinc-300 hover:text-white">Characters</Link></li>
             <li><Link to="/locations" className="text-zinc-300 hover:text-white">Locations</Link></li>
             <li><Link to="/vehicles" className="text-zinc-300 hover:text-white">Vehicles</Link></li>
+            <li><Link to="/arsenal" className="text-zinc-300 hover:text-white">Arsenal</Link></li>
           </ul>
         </div>
         <div>

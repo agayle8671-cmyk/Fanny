@@ -3,6 +3,147 @@
 
 export const articles = [
   {
+    slug: "shinyhunters-rockstar-breach-what-leaked",
+    category: "Investigations",
+    title: "The ShinyHunters Breach: What Got Out, What Got Confirmed",
+    dek: "78.6 million records, a missed ransom deadline, and the first hard numbers on GTA Online's empire.",
+    author: "Editorial Desk",
+    date: "April 14, 2026",
+    readTime: "10 min read",
+    heroImage: "https://images.unsplash.com/photo-1607799279861-4dd421887fb3?q=80&w=2400",
+    tags: ["Investigations", "Leaks", "Rockstar", "Security"],
+    body: [
+      {
+        type: "lead",
+        text: "On April 11, 2026, the hacker collective known as ShinyHunters posted a 72-hour ransom deadline on a dark-web leak site. The target was Rockstar Games — specifically a third-party analytics integration through Anodot and Snowflake. The deadline was April 14. The ransom was not paid. Seventy-eight-point-six million records went public the same evening.",
+      },
+      {
+        type: "h2",
+        text: "How they got in",
+      },
+      {
+        type: "p",
+        text: "ShinyHunters did not breach Rockstar's production systems. They breached a downstream analytics pipeline — exactly the kind of integration that gets less scrutiny than the core product. The pattern is the same one that defined the wave of Snowflake-adjacent incidents earlier in the decade: credentials stolen from a contractor, reused against a customer's instance, and a slow drip of exfiltration that completed before anyone noticed.",
+      },
+      {
+        type: "pull",
+        text: "ShinyHunters didn't breach Rockstar. They breached the warehouse Rockstar trusted.",
+      },
+      {
+        type: "h2",
+        text: "What's in the dump",
+      },
+      {
+        type: "p",
+        text: "Three categories. The first is internal analytics — dashboards, KPI rollups, and the kind of revenue-cohort reporting that ordinarily never leaves a finance team's screens. The second is customer-support ticket metadata: timestamps, anonymized session IDs, escalation tags. The third — and the one that will dominate the news cycle for weeks — is GTA Online's lifetime financial telemetry.",
+      },
+      {
+        type: "p",
+        text: "The headline number is five billion. Cumulative revenue from Shark Cards alone, since the cosmetic in-game currency was introduced. The runner-up is thirty-two: the player count Rockstar's internal documents now reference for online lobbies, a meaningful jump from the GTA V baseline. Marketing plans, partnership decks, and a fragment of the title's pre-launch DLC roadmap round out the haul.",
+      },
+      {
+        type: "image",
+        src: "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?q=80&w=2400",
+        caption: "The leak indexed internal analytics, GTA Online revenue telemetry, and a fragment of the post-launch roadmap.",
+      },
+      {
+        type: "h2",
+        text: "Rockstar's response",
+      },
+      {
+        type: "p",
+        text: "On April 13, Rockstar Games issued a statement through its newswire describing the incident as 'a limited amount of non-material company information' and explicitly denying any compromise of player account data, payment instruments, or production source code. The statement is consistent with the indicators in the leak: nothing in the public dump is a customer-side credential or a copy of the game binary.",
+      },
+      {
+        type: "p",
+        text: "The 'non-material' framing is doing a lot of work in that sentence. It is true in the regulatory sense — material here means materially affecting a publicly-traded company's earnings, and a competitor learning that Shark Cards generated five billion dollars across a decade is not, in the SEC sense, material. It is also less true in the cultural sense, because that number recontextualizes the entire commercial logic of the franchise heading into GTA 6's launch.",
+      },
+      {
+        type: "pull",
+        text: "Five billion in Shark Card revenue is the most informative line in the leak. It explains every product decision since 2013.",
+      },
+      {
+        type: "h2",
+        text: "What it tells us about GTA 6",
+      },
+      {
+        type: "p",
+        text: "Three things. First, the 32-player online figure is now the most credible number we have for Online's session ceiling — a 50% jump over GTA V's 30-player base. Second, the marketing fragments confirm a multi-territory phased reveal cadence that maps to several already-published trailer release dates. Third, the DLC roadmap fragment references at least one region of the State of Leonida not yet visible in any trailer footage — a reference Rockstar will neither confirm nor deny.",
+      },
+      {
+        type: "h2",
+        text: "The standing",
+      },
+      {
+        type: "p",
+        text: "ShinyHunters has not, as of writing, posted a follow-up haul. The post-incident pattern from previous breaches suggests they will resurface within 30 days, either against the same target or pivot to an adjacent vendor. Rockstar has not commented on the specific GTA Online revenue figures or the 32-player line. The next test will be whether the figures appear in any of the regulatory filings Take-Two will need to make ahead of the November 19 launch.",
+      },
+    ],
+  },
+  {
+    slug: "bawsaq-and-lcn-stock-markets-return",
+    category: "Markets",
+    title: "Markets Reopen: BAWSAQ, LCN, and the Player Economy of GTA VI",
+    dek: "The dual stock markets are confirmed. The new question is how much of the economy they'll actually drive.",
+    author: "Editorial Desk",
+    date: "March 22, 2026",
+    readTime: "7 min read",
+    heroImage: "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?q=80&w=2400",
+    tags: ["Markets", "Economy", "Gameplay", "Online"],
+    body: [
+      {
+        type: "lead",
+        text: "GTA V's two-market system is back — but Rockstar's design notes suggest the role those markets play in GTA VI's player economy is going to be substantially larger than it ever was on the previous generation.",
+      },
+      {
+        type: "h2",
+        text: "Two tickers, two philosophies",
+      },
+      {
+        type: "p",
+        text: "LCN (Liberty City National) is the single-player exchange. Its prices respond to story missions, in-world events, and the actions of the player's own protagonists. Buy stock in a rival firm, assassinate a CEO, watch the price move. It is a deterministic, narrative-driven market designed for solo play.",
+      },
+      {
+        type: "p",
+        text: "BAWSAQ is the global exchange. Its prices respond to the aggregate actions of every player on the network. If 40,000 players rob the same convenience-store chain in a 24-hour window, the chain's stock drops. It is a stochastic, social-systems-driven market designed for online play — and it was, in 2013, ahead of its time.",
+      },
+      {
+        type: "pull",
+        text: "BAWSAQ is the only stock market in entertainment software where 40,000 simultaneous crimes are a real input signal.",
+      },
+      {
+        type: "image",
+        src: "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?q=80&w=2400",
+        caption: "BAWSAQ ticker rendered in early Trailer 2 footage — Tequesta financial district.",
+      },
+      {
+        type: "h2",
+        text: "What changes this time",
+      },
+      {
+        type: "p",
+        text: "Three things visible in trailer material and corroborated by the ShinyHunters fragments. First, BAWSAQ now ingests social-media signals — not just in-game actions. A real-world Twitter pile-on against a fictional in-game brand will move that brand's stock. Second, the markets are integrated with the new Business system: owning a front in Tequesta routes part of its weekly revenue through your BAWSAQ position automatically. Third, the markets are now playable as a primary loop. You can run a character whose income is entirely market-derived.",
+      },
+      {
+        type: "h2",
+        text: "The Tequesta floor",
+      },
+      {
+        type: "p",
+        text: "Trailer footage from May 2025 includes a roughly three-second cutaway to what is clearly a working trading floor inside one of Tequesta's enterable skyscrapers. Tickers running across the chyron include AUGURY (the in-game replacement for analytics platforms like Anodot), VAPID, BAWSAQ itself, and a half-dozen returning brand stocks from GTA V. The implication is that the markets aren't just a UI screen anymore — they're a physical location in the city with its own missions.",
+      },
+      {
+        type: "h2",
+        text: "Why it matters",
+      },
+      {
+        type: "p",
+        text: "The fictional stock markets in GTA V were one of the franchise's most-loved systems and one of its most-underused. The new design pushes them from a side activity to a parallel career path — and, if the trailer is to be believed, to a physical place in Vice City that you can rob, infiltrate, or get hired by. The criminal economy of Leonida just gained a fourth axis: violent, smuggling, social, and now financial.",
+      },
+    ],
+  },
+
+  {
     slug: "return-to-vice-city-everything-we-know-about-leonida",
     category: "Feature",
     title: "The Return to Vice City: Everything We Know About Leonida",
