@@ -2,25 +2,25 @@
 import { useState, useEffect } from "react";
 import { getFallbackImage } from "../lib/fallback-image";
 
-// ─── Design tokens (matches EditorialDesk) ────────────────────────────────────
+// ─── Design tokens — hardcoded to match EditorialDesk.jsx ─────────────────────
 const C = {
-  bg:       "var(--bg-page)",
-  surface:  "var(--bg-surface)",
-  surface2: "var(--bg-elevated)",
-  border:   "rgba(255,255,255,0.08)",
-  border2:  "rgba(255,255,255,0.12)",
-  text:     "var(--text-primary)",
-  text2:    "var(--text-secondary)",
-  text3:    "var(--text-muted)",
-  red:      "var(--accent-red)",
-  redDim:   "var(--accent-red-dim)",
-  redText:  "var(--accent-red)",
-  green:    "#1A7A3C",
-  greenDim: "rgba(26,122,60,0.15)",
-  amber:    "var(--accent-gold)",
-  amberDim: "rgba(245,166,35,0.15)",
-  blue:     "#1D4ED8",
-  blueDim:  "rgba(59,130,246,0.15)",
+  bg:       "#030305",
+  surface:  "#0d0d12",
+  surface2: "#08080c",
+  border:   "rgba(255,255,255,0.06)",
+  border2:  "rgba(255,255,255,0.1)",
+  text:     "#ffffff",
+  text2:    "#a1a1aa",
+  text3:    "#52525b",
+  red:      "#FF2A6D",
+  redDim:   "rgba(255,42,109,0.12)",
+  redText:  "#FF2A6D",
+  green:    "#22C55E",
+  greenDim: "rgba(34,197,94,0.12)",
+  amber:    "#FF7B00",
+  amberDim: "rgba(255,123,0,0.12)",
+  blue:     "#05D9E8",
+  blueDim:  "rgba(5,217,232,0.12)",
 };
 
 const CATEGORIES = ["Intel", "Vice City", "Business", "Investigations", "Vehicles", "Counties", "Markets"];
