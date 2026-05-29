@@ -36,8 +36,9 @@ const News = () => {
         }
       });
       merged.sort((a, b) => {
-        const ta = Date.parse(a.publishedAt || a.approvedAt || a.date || "") || 0;
-        const tb = Date.parse(b.publishedAt || b.approvedAt || b.date || "") || 0;
+        // approvedAt = when published on THIS site (always use first)
+        const ta = Date.parse(a.approvedAt || a.publishedAt || a.date || "") || 0;
+        const tb = Date.parse(b.approvedAt || b.publishedAt || b.date || "") || 0;
         return tb - ta;
       });
       setAllArticles(merged);

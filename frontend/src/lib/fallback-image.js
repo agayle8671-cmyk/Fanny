@@ -5,15 +5,23 @@
  * - Selection priority: aiTags → category → id-hash tiebreaker
  */
 
-// Thematic image pools — Unsplash collections matched to article topics
+// Thematic image pools — Unsplash/static collections matched to article topics
 const POOLS = {
   // GTA 6 / Vice City / Florida / Trailers / Tech
   gta_vice: [
-    "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?q=80&w=2400&auto=format&fit=crop", // coastal highway at sunset
+    "https://images.unsplash.com/photo-1514214246283-d427a95c5d2f?q=80&w=2400&auto=format&fit=crop", // palm trees beach sunset
     "https://images.unsplash.com/photo-1596727362302-b8d891c42ab8?q=80&w=2400&auto=format&fit=crop", // tropical neon city
     "https://images.unsplash.com/photo-1614728894747-a83421e2b9c9?q=80&w=2400&auto=format&fit=crop", // palm trees sunset — Vice City
     "https://images.unsplash.com/photo-1504711434969-e33886168f5c?q=80&w=2400&auto=format&fit=crop", // florida keys water
     "https://images.unsplash.com/photo-1533106497176-45ae19e68ba2?q=80&w=2400&auto=format&fit=crop", // neon Miami-style street
+  ],
+
+  // Characters / Lucia / Jason / Cast / Couple / Romance / Outlaws
+  characters: [
+    "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/8f27bda64f64ebd6453620848c5ec42959dae5b3db7d13932e1b573769470f79.png", // Lucia Caminos artwork
+    "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/18ea9848372b348f0168b03c23d7b02531d161f51b1f30a4a089c2374b0e293c.png", // Jason Duval artwork
+    "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/6dccb50f1f97f2f4f27319ab01773127d24f381cb080704869c46c535155b382.png", // Lucia and Jason on getaway
+    "https://images.unsplash.com/photo-1519046904884-53103b34b206?q=80&w=2400&auto=format&fit=crop", // beach couple sunset
   ],
 
   // Leaks / Dark city / Screenshots
@@ -88,6 +96,7 @@ function resolvePool(category, aiTags) {
   const cat = (category || "").toLowerCase();
   const combined = `${tags} ${cat}`;
 
+  if (/lucia|jason|character|cast|actor|lovers|romance|outlaw|relationship|couple/.test(combined)) return "characters";
   if (/gta|vice|rockstar|trailer|rage|engine|fps|performance|florida|leonida|tech|ai|strand|crowd/.test(combined)) return "gta_vice";
   if (/union|lawsuit|legal|workers|rights|iwgb|fired|dispute/.test(combined)) return "corporate";
   if (/leak|screenshot|reveal|rumour|rumor|datamine|insider/.test(combined)) return "leaks";
@@ -98,6 +107,7 @@ function resolvePool(category, aiTags) {
   if (/music|soundtrack|song|audio|score|concert/.test(combined)) return "music";
 
   // Category fallbacks
+  if (/characters?/.test(cat)) return "characters";
   if (/leaks?/.test(cat)) return "leaks";
   if (/world|news|global/.test(cat)) return "corporate";
   if (/media/.test(cat)) return "media";
@@ -112,10 +122,18 @@ function resolvePool(category, aiTags) {
  * @param {string} category - article.category
  * @param {string} id - article.id (UUID)
  * @param {string[]} aiTags - article.aiTags array
+ * @param {string|null} heroImage - the URL of the hero image to prevent duplication
  */
-export function getFallbackImage(category, id, aiTags = []) {
-  const pool = POOLS[resolvePool(category, aiTags)];
-  return pool[hashId(id) % pool.length];
+export function getFallbackImage(category, id, aiTags = [], heroImage = null) {
+  const poolKey = resolvePool(category, aiTags);
+  const pool = POOLS[poolKey];
+  let selected = pool[hashId(id) % pool.length];
+
+  // Guarantee we NEVER duplicate the hero image by shifting if they match
+  if (heroImage && selected === heroImage) {
+    selected = pool[(hashId(id) + 1) % pool.length];
+  }
+  return selected;
 }
 
 /**

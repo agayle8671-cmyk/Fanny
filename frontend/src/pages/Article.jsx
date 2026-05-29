@@ -6,7 +6,7 @@ import { api } from "../lib/api";
 import { ReadingProgress } from "../components/ReadingProgress";
 import { ShareWidget } from "../components/ShareWidget";
 import { ArticleTOC, slugify } from "../components/ArticleTOC";
-import { getFallbackImage, getSecondaryFallback } from "../lib/fallback-image";
+import { getFallbackImage } from "../lib/fallback-image";
 
 // Loading skeleton for dynamic articles
 const ArticleSkeleton = () => (
@@ -73,9 +73,10 @@ function normalizeArticle(a) {
   });
 
   // Image 1: Topic-relevant image derived from aiTags + category (NEVER a copy of the hero)
+  const heroUrl = a.heroImage || a.imageThumbnail || a.videoThumbnail || null;
   bodyBlocks.push({
     type: "image",
-    src: getFallbackImage(a.category, a.id, a.aiTags || []),
+    src: getFallbackImage(a.category, a.id, a.aiTags || [], heroUrl),
     caption: `Field intelligence: ${(a.aiTags && a.aiTags[0]) ? a.aiTags[0] + ' coverage' : (a.category || 'Leonida') + ' bureau'} — ${new Date(a.publishedAt || a.approvedAt || Date.now()).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}.`
   });
 
