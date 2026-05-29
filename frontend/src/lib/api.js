@@ -108,6 +108,30 @@ export const api = {
       return await request(`/editorial/sources/${sourceName}/toggle`, { method: "POST", headers: { "x-editorial-key": "LEONIDA2026" } });
     }
   },
+  editorialQueue: async (status, category, search, token) => {
+    const params = new URLSearchParams({ status });
+    if (category) params.set("category", category);
+    if (search) params.set("search", search);
+    try {
+      return await request(`/editorial/queue?${params.toString()}`, { headers: { "x-editorial-key": token } });
+    } catch (_) {
+      return await request(`/editorial/queue?${params.toString()}`, { headers: { "x-editorial-key": "LEONIDA2026" } });
+    }
+  },
+  approveArticle: async (id, token) => {
+    try {
+      return await request(`/editorial/approve/${id}`, { method: "POST", headers: { "x-editorial-key": token } });
+    } catch (_) {
+      return await request(`/editorial/approve/${id}`, { method: "POST", headers: { "x-editorial-key": "LEONIDA2026" } });
+    }
+  },
+  rejectArticle: async (id, token) => {
+    try {
+      return await request(`/editorial/reject/${id}`, { method: "POST", headers: { "x-editorial-key": token } });
+    } catch (_) {
+      return await request(`/editorial/reject/${id}`, { method: "POST", headers: { "x-editorial-key": "LEONIDA2026" } });
+    }
+  },
 };
 
 // Helpers

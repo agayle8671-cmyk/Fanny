@@ -60,6 +60,7 @@ export default function EditorialDesk() {
   const [authError,   setAuthError]     = useState("");
   const [bootLine,    setBootLine]      = useState(0);
 
+  const [queueTab, setQueueTab] = useState("pending");
   const [articles,        setArticles]        = useState([]);
   const [searchQuery,     setSearchQuery]      = useState("");
   const [categoryFilter,  setCategoryFilter]   = useState("all");
@@ -142,15 +143,45 @@ export default function EditorialDesk() {
     if (!isAuthorized) return;
     setFeedLoading(true);
     try {
-      const res = await api.listArticles({ limit: 100 });
-      if (res?.items) setArticles(res.items);
+      const res = await api.editorialQueue(queueTab, categoryFilter, searchQuery, ingestToken);
+      if (res?.articles) setArticles(res.articles);
       else setArticles([]);
     } catch (e) {
       showToast("error", `Feed error: ${e.message}`);
     } finally {
       setFeedLoading(false);
     }
-  }, [isAuthorized]);
+  }, [isAuthorized, queueTab, categoryFilter, searchQuery, ingestToken]);
+
+  const handleApprove = async (id, e) => {
+    if (e) e.stopPropagation();
+    if (!isAuthorized) return;
+    try {
+      const res = await api.approveArticle(id, ingestToken);
+      showToast("success", res?.message || "Article approved and published live!");
+      if (activeArticle?.id === id || activeArticle?.slug === id) {
+        setActiveArticle(null);
+      }
+      fetchFeed();
+    } catch (e) {
+      showToast("error", `Approval error: ${e.message}`);
+    }
+  };
+
+  const handleReject = async (id, e) => {
+    if (e) e.stopPropagation();
+    if (!isAuthorized) return;
+    try {
+      const res = await api.rejectArticle(id, ingestToken);
+      showToast("success", res?.message || "Article rejected and archived.");
+      if (activeArticle?.id === id || activeArticle?.slug === id) {
+        setActiveArticle(null);
+      }
+      fetchFeed();
+    } catch (e) {
+      showToast("error", `Rejection error: ${e.message}`);
+    }
+  };
 
   const fetchScraperStatus = useCallback(async () => {
     if (!isAuthorized) return;
@@ -330,13 +361,6 @@ export default function EditorialDesk() {
     return { ...p, body: [...p.body, nb] };
   });
 
-  const filtered = articles.filter(a => {
-    const qs = searchQuery.toLowerCase();
-    return (
-      (!qs || (a.title||"").toLowerCase().includes(qs) || (a.slug||"").includes(qs)) &&
-      (categoryFilter === "all" || a.category === categoryFilter)
-    );
-  });
 
   const hotCount   = articles.filter(a => (a.newsValueScore||0) >= 70).length;
   const draftCount = articles.filter(a => !a.body || a.body.length === 0).length;
@@ -540,19 +564,39 @@ export default function EditorialDesk() {
         </div>
       </div>
 
-      {/* ── 3-column layout ── */}
+      {/* ══ 3-column layout ══ */}
       <div style={{
         display:"grid", gridTemplateColumns:"280px 1fr 380px",
         flex:1, height:"calc(100vh - 164px)", overflow:"hidden"
       }}>
 
-        {/* ══ PANE 1: ARTICLE FEED ══ */}
+        {/* ══ PANE 1: EDITORIAL QUEUE ══ */}
         <div style={{
           borderRight:"1px solid rgba(255,255,255,0.06)", display:"flex", flexDirection:"column",
           background:"rgba(5,5,8,0.7)", overflow:"hidden"
         }}>
-          {/* Search + filter */}
-          <div style={{ padding:"12px 14px", borderBottom:"1px solid rgba(255,255,255,0.06)" }}>
+          {/* Queue status tabs */}
+          <div style={{ display:"flex", borderBottom:"1px solid rgba(255,255,255,0.06)", flexShrink:0 }}>
+            {[
+              { key:"pending",   label:"📥 Pending",   color:"#FF7B00" },
+              { key:"published", label:"🌐 Published",  color:"#22C55E" },
+              { key:"rejected",  label:"🗑 Rejected",   color:"#71717a" },
+            ].map(tab => (
+              <button key={tab.key} onClick={() => { setQueueTab(tab.key); setActiveArticle(null); }} style={{
+                flex:1, padding:"10px 4px", fontSize:9, fontWeight:800,
+                letterSpacing:"0.15em", textTransform:"uppercase", cursor:"pointer",
+                background:"transparent", border:"none",
+                borderBottom: queueTab === tab.key ? `2px solid ${tab.color}` : "2px solid transparent",
+                color: queueTab === tab.key ? tab.color : "#3f3f46",
+                transition:"color 0.2s"
+              }}>
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Search + category filter */}
+          <div style={{ padding:"10px 12px", borderBottom:"1px solid rgba(255,255,255,0.06)", flexShrink:0 }}>
             <div style={{ position:"relative", marginBottom:8 }}>
               <Search size={12} style={{ position:"absolute", left:10, top:"50%", transform:"translateY(-50%)", color:"#52525b" }}/>
               <input type="text" placeholder="Search articles..."
@@ -564,14 +608,14 @@ export default function EditorialDesk() {
                 }}
               />
             </div>
-            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+            <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
               {["all", ...CATEGORIES].map(cat => (
                 <button key={cat} onClick={() => setCategoryFilter(cat)} style={{
-                  padding:"3px 10px", borderRadius:3, fontSize:9, fontWeight:700,
-                  letterSpacing:"0.15em", textTransform:"uppercase", cursor:"pointer",
-                  border: categoryFilter === cat ? `1px solid ${CATEGORY_COLOR[cat]?.border || "rgba(255,42,109,0.4)"}` : "1px solid rgba(255,255,255,0.07)",
-                  background: categoryFilter === cat ? (CATEGORY_COLOR[cat]?.bg || "rgba(255,42,109,0.12)") : "transparent",
-                  color: categoryFilter === cat ? (CATEGORY_COLOR[cat]?.text || "#FF2A6D") : "#52525b",
+                  padding:"2px 8px", borderRadius:3, fontSize:8, fontWeight:700,
+                  letterSpacing:"0.12em", textTransform:"uppercase", cursor:"pointer",
+                  border: categoryFilter === cat ? `1px solid ${CATEGORY_COLOR[cat]?.border || "rgba(255,123,0,0.4)"}` : "1px solid rgba(255,255,255,0.07)",
+                  background: categoryFilter === cat ? (CATEGORY_COLOR[cat]?.bg || "rgba(255,123,0,0.12)") : "transparent",
+                  color: categoryFilter === cat ? (CATEGORY_COLOR[cat]?.text || "#FF7B00") : "#52525b",
                 }}>
                   {cat === "all" ? "All" : cat}
                 </button>
@@ -585,31 +629,25 @@ export default function EditorialDesk() {
               <div style={{ padding:32, textAlign:"center" }}>
                 <Database size={20} style={{ color:"#27272a", margin:"0 auto 10px" }}/>
                 <p style={{ fontSize:10, letterSpacing:"0.25em", color:"#3f3f46", textTransform:"uppercase" }}>
-                  Accessing database...
+                  Loading queue...
                 </p>
               </div>
-            ) : filtered.length === 0 ? (
+            ) : articles.length === 0 ? (
               <div style={{ padding:32, textAlign:"center" }}>
                 <Globe size={20} style={{ color:"#27272a", margin:"0 auto 10px" }}/>
                 <p style={{ fontSize:10, letterSpacing:"0.2em", color:"#3f3f46", textTransform:"uppercase" }}>
-                  {searchQuery ? "No matches" : "No articles indexed"}
+                  {queueTab === "pending" ? "Queue is empty — run a scrape" : `No ${queueTab} articles`}
                 </p>
-                {!searchQuery && (
-                  <p style={{ fontSize:10, color:"#27272a", marginTop:8, lineHeight:1.6 }}>
-                    Your backend API URL is not configured in Vercel.<br/>
-                    Set <code style={{ color:"#FF7B00" }}>REACT_APP_BACKEND_URL</code> in Vercel env vars.
-                  </p>
-                )}
               </div>
             ) : (
-              filtered.map(art => {
-                const isSelected = activeArticle?.slug === art.slug;
-                const isDraft    = !art.body || art.body.length === 0;
+              articles.map(art => {
+                const isSelected = activeArticle?.id === art.id;
                 const isHot      = (art.newsValueScore || 0) >= 70;
                 const catColor   = CATEGORY_COLOR[art.category] || CATEGORY_COLOR.Tech;
+                const artId      = art.id;
 
                 return (
-                  <div key={art.slug}
+                  <div key={artId}
                     onClick={() => { setActiveArticle(art); setRawText(art.aiSummary || art.excerpt || ""); }}
                     style={{
                       padding:"12px 14px", cursor:"pointer", position:"relative",
@@ -619,17 +657,19 @@ export default function EditorialDesk() {
                       transition:"background 0.15s"
                     }}
                   >
-                    {/* Category + time */}
-                    <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:5 }}>
+                    {/* Category + score + time */}
+                    <div style={{ display:"flex", alignItems:"center", gap:5, marginBottom:5 }}>
                       <span style={{
-                        fontSize:8, fontWeight:700, letterSpacing:"0.2em", textTransform:"uppercase",
+                        fontSize:8, fontWeight:700, letterSpacing:"0.15em", textTransform:"uppercase",
                         color: catColor.text, background: catColor.bg,
-                        border: `1px solid ${catColor.border}`,
-                        padding:"1px 7px", borderRadius:2
+                        border:`1px solid ${catColor.border}`, padding:"1px 6px", borderRadius:2
                       }}>{art.category || "—"}</span>
                       {isHot && <span style={{ fontSize:9, color:"#FF7B00" }}>🔥</span>}
+                      {art.newsValueScore !== undefined && (
+                        <span style={{ fontSize:8, color:"#52525b" }}>Score {art.newsValueScore}</span>
+                      )}
                       <span style={{ fontSize:9, color:"#3f3f46", marginLeft:"auto" }}>
-                        {timeAgo(art.publishedAt || art.scrapedAt)}
+                        {timeAgo(art.scrapedAt || art.publishedAt)}
                       </span>
                     </div>
 
@@ -641,33 +681,59 @@ export default function EditorialDesk() {
                       WebkitBoxOrient:"vertical", overflow:"hidden"
                     }}>{art.title}</p>
 
-                    {/* Bottom row */}
-                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-                      <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                    {/* Source */}
+                    {art.sourceName && (
+                      <p style={{ fontSize:9, color:"#3f3f46", marginBottom:6 }}>
+                        via {art.sourceName}
+                      </p>
+                    )}
+
+                    {/* Action buttons */}
+                    <div style={{ display:"flex", gap:5, marginTop:6 }}>
+                      {queueTab === "pending" && (
+                        <>
+                          <button
+                            onClick={e => handleApprove(artId, e)}
+                            style={{
+                              flex:1, padding:"5px 0", fontSize:9, fontWeight:800,
+                              letterSpacing:"0.15em", textTransform:"uppercase", cursor:"pointer",
+                              background:"rgba(34,197,94,0.1)", border:"1px solid rgba(34,197,94,0.3)",
+                              borderRadius:3, color:"#22C55E", display:"flex", alignItems:"center",
+                              justifyContent:"center", gap:4
+                            }}
+                          >
+                            <CheckCircle size={9}/> Publish
+                          </button>
+                          <button
+                            onClick={e => handleReject(artId, e)}
+                            style={{
+                              flex:1, padding:"5px 0", fontSize:9, fontWeight:800,
+                              letterSpacing:"0.15em", textTransform:"uppercase", cursor:"pointer",
+                              background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.2)",
+                              borderRadius:3, color:"#EF4444", display:"flex", alignItems:"center",
+                              justifyContent:"center", gap:4
+                            }}
+                          >
+                            <X size={9}/> Discard
+                          </button>
+                        </>
+                      )}
+                      {queueTab === "published" && (
                         <span style={{
-                          fontSize:8, fontWeight:700, letterSpacing:"0.15em",
-                          padding:"2px 8px", borderRadius:2,
-                          background: isDraft ? "rgba(5,217,232,0.08)" : "rgba(34,197,94,0.08)",
-                          border: isDraft ? "1px solid rgba(5,217,232,0.2)" : "1px solid rgba(34,197,94,0.2)",
-                          color: isDraft ? "#05D9E8" : "#22C55E", textTransform:"uppercase"
-                        }}>{isDraft ? "DRAFT" : "LIVE"}</span>
-                        {art.newsValueScore !== undefined && (
-                          <span style={{ fontSize:9, color:"#52525b" }}>Score: {art.newsValueScore}</span>
-                        )}
-                      </div>
-                      <button
-                        onClick={e => handleDelete(art.slug, e)}
-                        style={{
-                          background:"transparent", border:"none", cursor:"pointer",
-                          color:"#3f3f46", padding:4, borderRadius:3, display:"flex",
-                          opacity: isSelected ? 1 : 0, transition:"opacity 0.2s"
-                        }}
-                        onMouseOver={e => e.currentTarget.style.color = "#EF4444"}
-                        onMouseOut={e => e.currentTarget.style.color = "#3f3f46"}
-                      >
-                        <Trash2 size={11}/>
-                      </button>
+                          fontSize:8, color:"#22C55E", padding:"3px 8px",
+                          background:"rgba(34,197,94,0.08)", border:"1px solid rgba(34,197,94,0.15)",
+                          borderRadius:2, letterSpacing:"0.1em", textTransform:"uppercase"
+                        }}>✓ Live on site</span>
+                      )}
+                      {queueTab === "rejected" && (
+                        <span style={{
+                          fontSize:8, color:"#71717a", padding:"3px 8px",
+                          background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)",
+                          borderRadius:2, letterSpacing:"0.1em", textTransform:"uppercase"
+                        }}>Archived</span>
+                      )}
                     </div>
+
                     <ChevronRight size={10} style={{
                       position:"absolute", right:10, top:"50%", transform:"translateY(-50%)",
                       color: isSelected ? "#05D9E8" : "transparent"
@@ -678,6 +744,7 @@ export default function EditorialDesk() {
             )}
           </div>
         </div>
+
 
         {/* ══ PANE 2: EDITOR ══ */}
         <div style={{ display:"flex", flexDirection:"column", overflow:"hidden", background:"#030305" }}>
