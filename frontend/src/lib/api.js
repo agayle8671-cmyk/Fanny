@@ -1,5 +1,25 @@
 // Tiny fetch wrapper around the Leonida Vice backend.
-const BASE = process.env.REACT_APP_BACKEND_URL || "";
+let BASE_URL = process.env.REACT_APP_BACKEND_URL || "";
+
+// Fallback to the production backend URL if empty
+if (!BASE_URL) {
+  BASE_URL = "https://fanny-production-4c28.up.railway.app";
+}
+
+// Clean up whitespace
+BASE_URL = BASE_URL.trim();
+
+// Ensure trailing slash is removed if present
+if (BASE_URL.endsWith("/")) {
+  BASE_URL = BASE_URL.slice(0, -1);
+}
+
+// Ensure http:// or https:// is present
+if (BASE_URL && !BASE_URL.startsWith("http://") && !BASE_URL.startsWith("https://")) {
+  BASE_URL = `https://${BASE_URL}`;
+}
+
+const BASE = BASE_URL;
 
 async function get(path) {
   try {
