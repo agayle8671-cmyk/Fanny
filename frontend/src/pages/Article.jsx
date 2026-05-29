@@ -179,9 +179,6 @@ const Article = () => {
           <h1 className="font-editorial text-4xl md:text-7xl text-white leading-[1.02] max-w-5xl">
             {article.title}
           </h1>
-          <p className="mt-6 font-editorial italic text-xl md:text-2xl text-zinc-200 max-w-3xl leading-snug">
-            {article.dek}
-          </p>
 
           {/* Byline strip */}
           <div className="mt-10 flex flex-wrap items-center gap-5 pt-6 border-t border-white/15 max-w-3xl">
