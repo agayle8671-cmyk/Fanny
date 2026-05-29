@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Play, ArrowRight, Terminal } from "lucide-react";
 import { Countdown } from "../components/Countdown";
@@ -10,17 +10,51 @@ import { HeroCarousel } from "../components/HeroCarousel";
 import { MarqueeStrip } from "../components/MarqueeStrip";
 import { ByTheNumbers } from "../components/ByTheNumbers";
 import { ShareWidget } from "../components/ShareWidget";
-import { NewswireRail } from "../components/NewswireRail";
-import { articles } from "../data/articles";
+import { api } from "../lib/api";
+import { articles as localArticles } from "../data/articles";
 import { characters } from "../data/characters";
 import { locations } from "../data/locations";
 import { vehicles } from "../data/vehicles";
 import { gameInfo } from "../data/gameInfo";
 import { ScrollReveal } from "../components/ScrollReveal";
 
+function normalizeArticle(a) {
+  return {
+    ...a,
+    heroImage:  a.heroImage || a.imageThumbnail || a.videoThumbnail || null,
+    dek:        a.dek || a.aiSummary || a.excerpt || "",
+    date:       a.date || (a.publishedAt || a.approvedAt || a.scrapedAt || "").slice(0, 10),
+    author:     a.author || "Leonida Vice",
+    readTime:   a.readTime || "2 min read",
+    category:   a.category || "Intel",
+    slug:       a.slug || "",
+  };
+}
 
 const Home = () => {
   const [, setActiveSlide] = useState(0);
+  const [allArticles, setAllArticles] = useState(localArticles.map(normalizeArticle));
+
+  useEffect(() => {
+    let alive = true;
+    api.listArticles({ limit: 12 }).then((res) => {
+      if (!alive) return;
+      const backendItems = (res?.items || []).map(normalizeArticle);
+      const merged = [...localArticles.map(normalizeArticle)];
+      backendItems.forEach(art => {
+        if (art.slug && !merged.some(a => a.slug === art.slug)) {
+          merged.push(art);
+        }
+      });
+      merged.sort((a, b) => {
+        const ta = Date.parse(a.publishedAt || a.approvedAt || a.date || "") || 0;
+        const tb = Date.parse(b.publishedAt || b.approvedAt || b.date || "") || 0;
+        return tb - ta;
+      });
+      setAllArticles(merged);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   return (
     <div data-testid="home-page" className="bg-[#050505] text-white">
@@ -121,21 +155,18 @@ const Home = () => {
       {/* BY THE NUMBERS — IMDb data density */}
       <ByTheNumbers />
 
-      {/* NEWSWIRE — live scraped intel */}
-      <NewswireRail />
-
       {/* FEATURED EDITORIAL — Cover Story */}
       <section className="py-24 border-b border-white/5 relative">
         <div className="max-w-[1400px] mx-auto px-6 md:px-12 grid md:grid-cols-12 gap-10 items-center">
           <ScrollReveal direction="right" duration={0.9} className="md:col-span-7">
             <Link
-              to={`/news/${articles[1].slug}`}
+              to={`/news/${localArticles[1].slug}`}
               data-testid="home-featured-article"
               className="group relative block aspect-[16/10] overflow-hidden rounded-xl border border-white/10"
             >
               <img
-                src={articles[1].heroImage}
-                alt={articles[1].title}
+                src={localArticles[1].heroImage}
+                alt={localArticles[1].title}
                 className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
               />
               <div className="absolute inset-0 hero-overlay" />
@@ -150,7 +181,7 @@ const Home = () => {
               </div>
               <div className="absolute bottom-0 left-0 p-8">
                 <span className="text-[10px] uppercase tracking-[0.3em] text-[#FF2A6D] font-semibold">
-                  {articles[1].category}
+                  {localArticles[1].category}
                 </span>
               </div>
             </Link>
@@ -160,13 +191,13 @@ const Home = () => {
               The Cover Story
             </span>
             <h2 className="font-editorial text-4xl md:text-5xl text-white leading-tight">
-              {articles[1].title}
+              {localArticles[1].title}
             </h2>
             <p className="text-zinc-400 text-lg leading-relaxed">
-              {articles[1].dek}
+              {localArticles[1].dek}
             </p>
             <Link
-              to={`/news/${articles[1].slug}`}
+              to={`/news/${localArticles[1].slug}`}
               className="inline-flex items-center gap-3 text-[#FF2A6D] uppercase tracking-[0.25em] text-xs font-semibold hover:text-white transition group/cta"
             >
               <span className="relative">
@@ -186,8 +217,8 @@ const Home = () => {
           title="Latest from the Newsroom"
           subtitle="Long-form editorial on the most anticipated game of the decade. Updated weekly."
         >
-          {articles.map((a, i) => (
-            <ArticleCard key={a.slug} article={a} index={i} />
+          {allArticles.map((a, i) => (
+            <ArticleCard key={a.slug || i} article={a} index={i} />
           ))}
         </HorizontalRail>
       </ScrollReveal>

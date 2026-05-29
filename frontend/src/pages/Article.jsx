@@ -21,11 +21,25 @@ const ArticleSkeleton = () => (
   </div>
 );
 
+function normalizeArticle(a) {
+  if (!a) return null;
+  return {
+    ...a,
+    heroImage:  a.heroImage || a.imageThumbnail || a.videoThumbnail || null,
+    dek:        a.dek || a.aiSummary || a.excerpt || "",
+    date:       a.date || (a.publishedAt || a.approvedAt || a.scrapedAt || "").slice(0, 10),
+    author:     a.author || "Leonida Vice",
+    readTime:   a.readTime || "2 min read",
+    category:   a.category || "Intel",
+    slug:       a.slug || "",
+  };
+}
+
 const Article = () => {
   const { slug } = useParams();
   const staticArticle = getArticle(slug);
 
-  const [article, setArticle] = useState(staticArticle || null);
+  const [article, setArticle] = useState(staticArticle ? normalizeArticle(staticArticle) : null);
   const [loading, setLoading] = useState(!staticArticle);
   const [notFound, setNotFound] = useState(false);
 
@@ -36,7 +50,7 @@ const Article = () => {
       if (!data) {
         setNotFound(true);
       } else {
-        setArticle(data);
+        setArticle(normalizeArticle(data));
       }
       setLoading(false);
     });
@@ -127,7 +141,13 @@ const Article = () => {
       {/* BODY — narrow editorial column with full-bleed image escapes */}
       <section className="relative pt-20 pb-10">
         <div className="article-prose max-w-3xl mx-auto px-6 md:px-0">
-          {article.body.map((block, i) => {
+          {(article.body && article.body.length > 0
+            ? article.body
+            : [
+                { type: "lead", text: article.aiSummary || article.excerpt || "Intel report pending." },
+                { type: "p", text: article.aiContent || article.content || "" }
+              ].filter(b => b.text)
+          ).map((block, i) => {
             if (block.type === "lead") {
               return (
                 <p

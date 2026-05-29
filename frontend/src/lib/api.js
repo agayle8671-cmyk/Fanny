@@ -65,7 +65,7 @@ export const api = {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     }),
-  parseArticle: (rawText, token, groqKey, model = "llama3-70b-8192") =>
+  parseArticle: (rawText, token, groqKey, model = "llama-3.3-70b-versatile") =>
     request(`/editorial/parse`, {
       method: "POST",
       headers: {

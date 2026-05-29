@@ -63,13 +63,13 @@ export const Footer = () => {
             />
             {status.live ? (
               <>
-                Newswire live · {status.count.toLocaleString()} filed
+                Newsroom live · {status.count.toLocaleString()} filed
                 {status.lastAt && (
                   <span className="text-zinc-600">· last {timeAgo(status.lastAt)}</span>
                 )}
               </>
             ) : (
-              <>Newswire warming up</>
+              <>Newsroom warming up</>
             )}
           </div>
         </div>
