@@ -28,7 +28,7 @@ import { api, timeAgo, fallbackThumb } from "../lib/api";
 import { slugify } from "../components/ArticleTOC";
 
 // Standard categories from design guidelines
-const CATEGORIES = ["Leaks", "Tech", "Story", "Trailers", "World", "Markets"];
+const CATEGORIES = ["Leaks", "Tech", "Story", "Media", "World", "Markets"];
 
 export default function EditorialDesk() {
   // Authentication states

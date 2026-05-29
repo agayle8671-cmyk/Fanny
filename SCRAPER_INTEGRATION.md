@@ -47,7 +47,7 @@ Requests without the header → `401`. Wrong token → `403`.
 - `slug` is the upsert key. Re-POSTing the same slug updates the existing record.
 - `newsValueScore ≥ 70` triggers the red "HOT" badge on the UI.
 - `publishedAt` drives sort order on `/intel` and the home Newswire rail.
-- Allowed categories that match the front-end filter pills: `Leaks`, `Tech`, `Story`, `Trailers`, `World`, `Markets`. Anything else still ingests but won't match the filter.
+- Allowed categories that match the front-end filter pills: `Leaks`, `Tech`, `Story`, `Media`, `World`, `Markets`. Anything else still ingests but won't match the filter.
 
 ## 4. Read endpoints (public, no auth)
 

@@ -209,7 +209,7 @@ async def parse_article(
         "Your task is to take any raw scraped article or newsletter text and transform it into a highly polished, structural JSON payload that matches our premium design requirements.\n\n"
         "Follow these strict layout and content rules:\n"
         "1. **Structure:** Your output must match the ScrapedArticle JSON format.\n"
-        "2. **Category:** Must fit one of the following filters: 'Leaks', 'Tech', 'Story', 'Trailers', 'World', 'Markets'.\n"
+        "2. **Category:** Must fit one of the following filters: 'Leaks', 'Tech', 'Story', 'Media', 'World', 'Markets'.\n"
         "3. **Hero Image:** Pick the most striking, cinematic, high-resolution landscape image URL related to the topic.\n"
         "4. **Editorial Body Blocks:** Translate the article's text into an array of blocks under the 'body' key. The block array must have these types:\n"
         "   - 'lead': The first paragraph of the article. Must start with a bold, epic opening statement. (The website will render this with a large drop-cap).\n"
