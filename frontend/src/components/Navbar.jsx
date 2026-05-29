@@ -14,6 +14,7 @@ const navLinks = [
   { to: "/markets", label: "Markets", testid: "nav-markets-link" },
   { to: "/media", label: "Media", testid: "nav-media-link" },
   { to: "/soundtrack", label: "Soundtrack", testid: "nav-soundtrack-link" },
+  { to: "/editorial-desk", label: "Editorial", testid: "nav-editorial-link" },
 ];
 
 const useDaysLeft = () => {

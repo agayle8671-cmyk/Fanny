@@ -85,6 +85,33 @@ export default function EditorialDesk() {
   ];
 
   useEffect(() => {
+    // 1. Check URL query parameters first
+    const params = new URLSearchParams(window.location.search);
+    const urlToken = params.get("token") || params.get("ingest_token");
+    const urlGroq = params.get("groq") || params.get("groq_api_key");
+
+    if (urlToken && urlGroq) {
+      localStorage.setItem("ingest_token", urlToken.trim());
+      localStorage.setItem("groq_api_key", urlGroq.trim());
+      setIngestToken(urlToken.trim());
+      setGroqKey(urlGroq.trim());
+      setIsAuthorized(true);
+      return;
+    }
+
+    // 2. Check environment variables (e.g., set once in Vercel project settings to auto-authorize all preview deploys)
+    const envToken = process.env.REACT_APP_INGEST_TOKEN || "";
+    const envGroq = process.env.REACT_APP_GROQ_KEY || "";
+    if (envToken && envGroq) {
+      localStorage.setItem("ingest_token", envToken.trim());
+      localStorage.setItem("groq_api_key", envGroq.trim());
+      setIngestToken(envToken.trim());
+      setGroqKey(envGroq.trim());
+      setIsAuthorized(true);
+      return;
+    }
+
+    // 3. Fallback to localStorage
     const saved = localStorage.getItem("ingest_token") || "";
     const savedG = localStorage.getItem("groq_api_key") || "";
     if (saved && savedG) {

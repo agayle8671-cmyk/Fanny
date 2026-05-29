@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Play, ArrowRight } from "lucide-react";
+import { Play, ArrowRight, Terminal } from "lucide-react";
 import { Countdown } from "../components/Countdown";
 import { HorizontalRail } from "../components/HorizontalRail";
 import { ArticleCard } from "../components/ArticleCard";
@@ -90,6 +90,13 @@ const Home = () => {
                 className="inline-flex items-center gap-3 px-7 py-4 border border-white/30 text-white font-semibold tracking-[0.25em] text-xs uppercase rounded-sm hover:bg-white hover:text-black transition-colors duration-300"
               >
                 Explore the Archive <ArrowRight size={16} />
+              </Link>
+              <Link
+                to="/editorial-desk"
+                data-testid="home-hero-editorial-btn"
+                className="inline-flex items-center gap-3 px-7 py-4 bg-[#05D9E8] text-black font-semibold tracking-[0.25em] text-xs uppercase rounded-sm hover:bg-[#FF7B00] hover:text-white transition-colors duration-300 shadow-[0_0_15px_rgba(5,217,232,0.35)] hover:shadow-[0_0_25px_rgba(255,123,0,0.5)]"
+              >
+                <Terminal size={16} /> Editorial Desk
               </Link>
             </div>
           </div>
