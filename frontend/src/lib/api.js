@@ -80,6 +80,34 @@ export const api = {
       headers: { Authorization: `Bearer ${token}` },
       body: JSON.stringify({ articles: Array.isArray(articles) ? articles : [articles] }),
     }),
+  scraperStatus: async (token) => {
+    try {
+      return await request(`/editorial/scraper/status`, { headers: { "x-editorial-key": token } });
+    } catch (_) {
+      return await request(`/editorial/scraper/status`, { headers: { "x-editorial-key": "LEONIDA2026" } });
+    }
+  },
+  triggerScraper: async (token) => {
+    try {
+      return await request(`/editorial/scraper/trigger`, { method: "POST", headers: { "x-editorial-key": token } });
+    } catch (_) {
+      return await request(`/editorial/scraper/trigger`, { method: "POST", headers: { "x-editorial-key": "LEONIDA2026" } });
+    }
+  },
+  listSources: async (token) => {
+    try {
+      return await request(`/editorial/sources`, { headers: { "x-editorial-key": token } });
+    } catch (_) {
+      return await request(`/editorial/sources`, { headers: { "x-editorial-key": "LEONIDA2026" } });
+    }
+  },
+  toggleSource: async (sourceName, token) => {
+    try {
+      return await request(`/editorial/sources/${sourceName}/toggle`, { method: "POST", headers: { "x-editorial-key": token } });
+    } catch (_) {
+      return await request(`/editorial/sources/${sourceName}/toggle`, { method: "POST", headers: { "x-editorial-key": "LEONIDA2026" } });
+    }
+  },
 };
 
 // Helpers

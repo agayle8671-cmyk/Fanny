@@ -4,7 +4,8 @@ import {
   Lock, Unlock, Key, LogOut, RefreshCw, Search, Trash2, Save,
   Plus, ArrowUp, ArrowDown, Sparkles, Eye, AlertTriangle,
   CheckCircle, Clock, X, FileText, Terminal, Zap, Radio,
-  Database, Activity, TrendingUp, Globe, ChevronRight
+  Database, Activity, TrendingUp, Globe, ChevronRight,
+  Play, ToggleLeft, ToggleRight, Server
 } from "lucide-react";
 import { api, timeAgo, fallbackThumb } from "../lib/api";
 import { slugify } from "../components/ArticleTOC";
@@ -73,6 +74,11 @@ export default function EditorialDesk() {
   const [groqLog,    setGroqLog]    = useState([]);
 
   const [toast, setToast] = useState(null);
+
+  const [scraperState, setScraperState] = useState({ isRunning: false, lastRunId: null, recentRuns: [], nextRunIn: "" });
+  const [sources, setSources] = useState([]);
+  const [scraperLoading, setScraperLoading] = useState(false);
+  const [sourcesLoading, setSourcesLoading] = useState(false);
 
   /* ── boot sequence lines ── */
   const BOOT = [
@@ -146,7 +152,79 @@ export default function EditorialDesk() {
     }
   }, [isAuthorized]);
 
-  useEffect(() => { if (isAuthorized) fetchFeed(); }, [isAuthorized]); // eslint-disable-line
+  const fetchScraperStatus = useCallback(async () => {
+    if (!isAuthorized) return;
+    try {
+      const res = await api.scraperStatus(ingestToken);
+      if (res) setScraperState(res);
+    } catch (e) {
+      console.error("Scraper status error:", e);
+    }
+  }, [isAuthorized, ingestToken]);
+
+  const fetchSources = useCallback(async () => {
+    if (!isAuthorized) return;
+    setSourcesLoading(true);
+    try {
+      const res = await api.listSources(ingestToken);
+      if (res?.sources) setSources(res.sources);
+    } catch (e) {
+      console.error("Sources error:", e);
+    } finally {
+      setSourcesLoading(false);
+    }
+  }, [isAuthorized, ingestToken]);
+
+  const handleTriggerScraper = async () => {
+    if (!isAuthorized || scraperState.isRunning) return;
+    setScraperLoading(true);
+    try {
+      const res = await api.triggerScraper(ingestToken);
+      showToast("success", res?.message || "Scrape triggered!");
+      fetchScraperStatus();
+    } catch (e) {
+      showToast("error", `Scraper error: ${e.message}`);
+    } finally {
+      setScraperLoading(false);
+    }
+  };
+
+  const handleToggleSource = async (sourceName) => {
+    if (!isAuthorized) return;
+    try {
+      const res = await api.toggleSource(sourceName, ingestToken);
+      if (res?.success) {
+        setSources(prev => prev.map(s => s.name === sourceName ? { ...s, isActive: res.isActive } : s));
+        showToast("success", `${sourceName} is now ${res.isActive ? "ACTIVE" : "INACTIVE"}`);
+      }
+    } catch (e) {
+      showToast("error", `Toggle error: ${e.message}`);
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthorized) {
+      fetchFeed();
+      fetchScraperStatus();
+      fetchSources();
+    }
+  }, [isAuthorized, fetchFeed, fetchScraperStatus, fetchSources]);
+
+  useEffect(() => {
+    if (!isAuthorized) return;
+    let iv = null;
+    if (scraperState.isRunning) {
+      iv = setInterval(() => {
+        fetchScraperStatus();
+        fetchFeed();
+      }, 5000);
+    } else {
+      iv = setInterval(() => {
+        fetchScraperStatus();
+      }, 30000);
+    }
+    return () => clearInterval(iv);
+  }, [isAuthorized, scraperState.isRunning, fetchFeed, fetchScraperStatus]);
 
   const handleLogin = e => {
     e.preventDefault();
@@ -605,22 +683,206 @@ export default function EditorialDesk() {
         <div style={{ display:"flex", flexDirection:"column", overflow:"hidden", background:"#030305" }}>
           {!activeArticle ? (
             <div style={{
-              flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
-              textAlign:"center", padding:48
+              flex:1, display:"grid", gridTemplateRows:"auto 1fr",
+              padding:32, gap:24, overflowY:"auto", background:"#030305"
             }}>
-              <Activity size={40} style={{ color:"#1c1c1f", marginBottom:16 }}/>
-              <h2 style={{ fontSize:16, fontWeight:800, letterSpacing:"0.15em", textTransform:"uppercase", color:"#3f3f46", marginBottom:8 }}>
-                Editorial Work Console
-              </h2>
-              <p style={{ fontSize:12, color:"#27272a", maxWidth:300, lineHeight:1.7 }}>
-                Select an article from the feed or compose a new one to load the block editor.
-              </p>
-              <button onClick={handleCreateNew} style={{
-                marginTop:24, padding:"10px 24px", background:"rgba(255,42,109,0.1)",
-                border:"1px solid rgba(255,42,109,0.25)", borderRadius:4, color:"#FF2A6D",
-                fontSize:11, fontWeight:700, letterSpacing:"0.2em", textTransform:"uppercase",
-                cursor:"pointer"
-              }}>+ Start Blank Page</button>
+              {/* Header / Console Info */}
+              <div style={{
+                display:"flex", alignItems:"center", justifyContent:"space-between",
+                padding:20, background:"rgba(8,8,12,0.6)", border:"1px solid rgba(255,255,255,0.04)",
+                borderRadius:6
+              }}>
+                <div style={{ display:"flex", alignItems:"center", gap:16 }}>
+                  <div style={{ width:40, height:40, borderRadius:6, background:"rgba(5,217,232,0.05)", border:"1px solid rgba(5,217,232,0.1)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                    <Activity size={20} style={{ color:"#05D9E8" }}/>
+                  </div>
+                  <div style={{ textAlign:"left" }}>
+                    <h2 style={{ fontSize:14, fontWeight:900, letterSpacing:"0.12em", textTransform:"uppercase", color:"#fff", margin:0 }}>
+                      EDITORIAL WORK CONSOLE
+                    </h2>
+                    <p style={{ fontSize:10, color:"#52525b", margin:"4px 0 0", letterSpacing:"0.05em" }}>
+                      Select an article from the left feed or click below to start composing.
+                    </p>
+                  </div>
+                </div>
+                <button onClick={handleCreateNew} style={{
+                  padding:"10px 20px", background:"rgba(255,42,109,0.12)",
+                  border:"1px solid rgba(255,42,109,0.3)", borderRadius:4, color:"#FF2A6D",
+                  fontSize:10, fontWeight:800, letterSpacing:"0.2em", textTransform:"uppercase",
+                  cursor:"pointer", transition:"all 0.2s"
+                }}>+ Start Blank Page</button>
+              </div>
+
+              {/* Scraper Dashboard Grid */}
+              <div style={{
+                display:"grid", gridTemplateColumns:"1fr 1fr", gap:24
+              }}>
+                {/* Panel A: Live Engine Status & Controls */}
+                <div style={{
+                  background:"rgba(8,8,12,0.85)", border:"1px solid rgba(5,217,232,0.12)",
+                  borderRadius:6, padding:24, display:"flex", flexDirection:"column", gap:20,
+                  boxShadow:"0 10px 40px rgba(0,0,0,0.4)"
+                }}>
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:"1px solid rgba(255,255,255,0.05)", paddingBottom:12 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                      <Server size={14} style={{ color:"#05D9E8" }}/>
+                      <span style={{ fontSize:10, letterSpacing:"0.3em", fontWeight:800, textTransform:"uppercase", color:"#05D9E8" }}>
+                        SCRAPER ENGINE
+                      </span>
+                    </div>
+                    {scraperState.isRunning ? (
+                      <span style={{
+                        fontSize:8, letterSpacing:"0.2em", textTransform:"uppercase",
+                        color:"#22C55E", fontWeight:800, padding:"3px 8px",
+                        background:"rgba(34,197,94,0.08)", border:"1px solid rgba(34,197,94,0.25)",
+                        borderRadius:3, display:"flex", alignItems:"center", gap:5
+                      }}>
+                        <span style={{ width:5, height:5, borderRadius:"50%", background:"#22C55E", animation:"blink 1.2s step-end infinite" }}/>
+                        RUNNING
+                      </span>
+                    ) : (
+                      <span style={{
+                        fontSize:8, letterSpacing:"0.2em", textTransform:"uppercase",
+                        color:"#71717a", fontWeight:800, padding:"3px 8px",
+                        background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.06)",
+                        borderRadius:3
+                      }}>
+                        STANDBY
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Manual trigger section */}
+                  <div style={{ textAlign:"left" }}>
+                    <p style={{ fontSize:11, color:"#a1a1aa", lineHeight:1.6, margin:"0 0 16px" }}>
+                      Run a real-time scrape scan against all active news sources below to find leaks, story rumors, or official media releases. Discovered articles will populate your desk automatically.
+                    </p>
+                    <button
+                      onClick={handleTriggerScraper}
+                      disabled={scraperState.isRunning || scraperLoading}
+                      style={{
+                        width:"100%", padding:"14px",
+                        background: scraperState.isRunning ? "rgba(255,255,255,0.04)" : "linear-gradient(90deg, #FF7B00, #FF2A6D)",
+                        border:"none", borderRadius:4, color: scraperState.isRunning ? "#52525b" : "#fff",
+                        fontWeight:800, fontSize:10, letterSpacing:"0.25em",
+                        textTransform:"uppercase", cursor: scraperState.isRunning ? "not-allowed" : "pointer",
+                        display:"flex", alignItems:"center", justifyContent:"center", gap:8,
+                        boxShadow: scraperState.isRunning ? "none" : "0 4px 20px rgba(255,123,0,0.25)",
+                        transition:"all 0.2s"
+                      }}
+                    >
+                      {scraperState.isRunning ? (
+                        <>
+                          <RefreshCw size={12} style={{ animation:"spin 1.2s linear infinite" }}/>
+                          Indexing In Progress...
+                        </>
+                      ) : (
+                        <>
+                          <Play size={12} fill="white"/>
+                          Trigger Scraper Scan
+                        </>
+                      )}
+                    </button>
+                    {scraperState.nextRunIn && (
+                      <p style={{ fontSize:9, color:"#52525b", marginTop:10, textAlign:"center", letterSpacing:"0.05em" }}>
+                        NEXT AUTOMATIC RUN: <span style={{ color:"#05D9E8", fontWeight:700 }}>{scraperState.nextRunIn}</span>
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Recent runs log */}
+                  <div style={{ display:"flex", flexDirection:"column", gap:10, textAlign:"left" }}>
+                    <span style={{ fontSize:9, letterSpacing:"0.2em", fontWeight:800, color:"#52525b", textTransform:"uppercase" }}>
+                      RECENT RUNS HISTORY
+                    </span>
+                    <div style={{
+                      background:"#020204", border:"1px solid rgba(255,255,255,0.04)",
+                      borderRadius:4, padding:12, fontFamily:"monospace", fontSize:10,
+                      display:"flex", flexDirection:"column", gap:6, minHeight:90
+                    }}>
+                      {!scraperState.recentRuns || scraperState.recentRuns.length === 0 ? (
+                        <div style={{ color:"#27272a", textAlign:"center", padding:"20px 0" }}>No runs registered yet.</div>
+                      ) : (
+                        scraperState.recentRuns.slice(0, 3).map((run, idx) => {
+                          const timeStr = new Date(run.startedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+                          const dateStr = new Date(run.startedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                          return (
+                            <div key={run.id || idx} style={{ display:"flex", justifyContent:"space-between", color: run.status === "failed" ? "#EF4444" : "#a1a1aa" }}>
+                              <span>
+                                <span style={{ color:"#05D9E8" }}>▶</span> Run {run.id?.toString().slice(-4) || idx} ({dateStr} {timeStr})
+                              </span>
+                              <span style={{ fontWeight:700, color: run.status === "completed" ? "#22C55E" : run.status === "failed" ? "#EF4444" : "#FF7B00" }}>
+                                {run.status === "completed" ? `+${run.articlesFound || 0} Ingested` : run.status?.toUpperCase()}
+                              </span>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Panel B: Active News Sources checklist */}
+                <div style={{
+                  background:"rgba(8,8,12,0.85)", border:"1px solid rgba(255,255,255,0.04)",
+                  borderRadius:6, padding:24, display:"flex", flexDirection:"column", gap:16,
+                  boxShadow:"0 10px 40px rgba(0,0,0,0.4)", overflow:"hidden"
+                }}>
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:"1px solid rgba(255,255,255,0.05)", paddingBottom:12 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                      <Globe size={14} style={{ color:"#FF2A6D" }}/>
+                      <span style={{ fontSize:10, letterSpacing:"0.3em", fontWeight:800, textTransform:"uppercase", color:"#FF2A6D" }}>
+                        FEED SOURCES ({sources.length})
+                      </span>
+                    </div>
+                    {sourcesLoading && (
+                      <RefreshCw size={11} style={{ animation:"spin 1s linear infinite", color:"#52525b" }}/>
+                    )}
+                  </div>
+
+                  <p style={{ fontSize:11, color:"#52525b", lineHeight:1.5, textAlign:"left", margin:0 }}>
+                    Enable or disable specific feed endpoints. The scraper will skip disabled outlets during automated and manual indexing runs.
+                  </p>
+
+                  {/* Sources List Grid */}
+                  <div style={{
+                    flex:1, overflowY:"auto", display:"flex", flexDirection:"column", gap:6,
+                    maxHeight:230, paddingRight:6
+                  }}>
+                    {sources.length === 0 ? (
+                      <div style={{ color:"#27272a", textAlign:"center", padding:"40px 0", fontSize:11 }}>
+                        {sourcesLoading ? "Loading active channels..." : "No sources initialized."}
+                      </div>
+                    ) : (
+                      sources.map(src => (
+                        <div key={src.name} style={{
+                          display:"flex", alignItems:"center", justifyContent:"space-between",
+                          padding:"8px 12px", background:"#08080c", border:"1px solid rgba(255,255,255,0.02)",
+                          borderRadius:4
+                        }}>
+                          <div style={{ display:"flex", flexDirection:"column", textAlign:"left" }}>
+                            <span style={{ fontSize:11, fontWeight:700, color:"#e4e4e7" }}>{src.name}</span>
+                            <span style={{ fontSize:8, color:"#52525b", fontFamily:"monospace" }}>
+                              {src.category?.toUpperCase()} · {src.type?.toUpperCase()}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => handleToggleSource(src.name)}
+                            style={{
+                              background:"transparent", border:"none", cursor:"pointer",
+                              padding:2, display:"flex", alignItems:"center",
+                              color: src.isActive ? "#05D9E8" : "#27272a",
+                              transition:"color 0.2s"
+                            }}
+                          >
+                            {src.isActive ? <ToggleRight size={28}/> : <ToggleLeft size={28}/>}
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           ) : (
             <>
