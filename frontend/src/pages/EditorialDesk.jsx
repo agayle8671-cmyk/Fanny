@@ -469,7 +469,7 @@ export default function EditorialDesk() {
     loadStats();
     const t = setInterval(loadStats, 30000);
     return () => clearInterval(t);
-  }, [loadStats]);
+  }, [loadStats, apiKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const logout = () => { localStorage.removeItem(STORAGE_KEY); setApiKey(DEFAULT_KEY); };
 
