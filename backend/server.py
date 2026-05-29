@@ -115,6 +115,21 @@ async def get_status_checks():
     return rows
 
 
+def normalize_category(cat: Optional[str]) -> str:
+    if not cat:
+        return "World"
+    c_lower = cat.lower().strip()
+    if c_lower in ("intel", "news"):
+        return "World"
+    if c_lower in ("trailers", "trailer"):
+        return "Media"
+    valid = ["Leaks", "Tech", "Story", "Media", "World", "Markets"]
+    for v in valid:
+        if v.lower() == c_lower:
+            return v
+    return "World"
+
+
 # ── Scraped articles ingest + read ──
 @api_router.post("/articles/ingest")
 async def ingest_articles(payload: IngestPayload, _: bool = Depends(require_ingest_token)):
@@ -123,6 +138,7 @@ async def ingest_articles(payload: IngestPayload, _: bool = Depends(require_inge
     upserted = 0
     for art in payload.articles:
         doc = art.model_dump()
+        doc['category'] = normalize_category(doc.get('category'))
         if not doc.get('scrapedAt'):
             doc['scrapedAt'] = now_iso
         await db.scraped_articles.update_one(
@@ -347,6 +363,25 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+@app.on_event("startup")
+async def startup_db_cleanup():
+    # Update any existing records in the database where category is "Intel" or "Trailers"
+    try:
+        # Update category "Intel" to "World"
+        res_intel = await db.scraped_articles.update_many(
+            {"category": {"$in": ["Intel", "intel"]}},
+            {"$set": {"category": "World"}}
+        )
+        # Update category "Trailers" to "Media"
+        res_trailers = await db.scraped_articles.update_many(
+            {"category": {"$in": ["Trailers", "trailers", "Trailer", "trailer"]}},
+            {"$set": {"category": "Media"}}
+        )
+        logger.info(f"Database cleanup: updated {res_intel.modified_count} intel items, {res_trailers.modified_count} trailer items.")
+    except Exception as e:
+        logger.error(f"Failed to run database startup cleanup: {e}")
 
 
 @app.on_event("shutdown")
