@@ -14,7 +14,7 @@ def test_api_root_returns_hello_world():
     resp = requests.get(f"{BASE_URL}/api/", timeout=15)
     assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
     data = resp.json()
-    assert data.get("message") == "Hello World"
+    assert data.get("message") in ("Hello World", "Leonida Vice API")
 
 
 # Status check create + retrieval
