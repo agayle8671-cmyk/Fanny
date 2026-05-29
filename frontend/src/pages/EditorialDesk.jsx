@@ -289,7 +289,7 @@ export default function EditorialDesk() {
 
   // Filtered article list
   const filteredArticles = articles.filter(art => {
-    const matchesSearch = art.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    const matchesSearch = (art.title || "").toLowerCase().includes(searchQuery.toLowerCase()) || 
                           (art.slug && art.slug.toLowerCase().includes(searchQuery.toLowerCase()));
     const matchesCategory = categoryFilter === "all" || art.category === categoryFilter;
     return matchesSearch && matchesCategory;
