@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import {
   Lock,
@@ -66,27 +66,27 @@ export default function EditorialDesk() {
     }
   }, []);
 
-  // Fetch articles from MongoDB
-  useEffect(() => {
-    const fetchFeed = async () => {
-      if (!isAuthorized) return;
-      setFeedLoading(true);
-      try {
-        const res = await api.listArticles({ limit: 50 });
-        if (res && res.items) {
-          setArticles(res.items);
-        }
-      } catch (e) {
-        showStatus("error", `Failed to load feed: ${e.message}`);
-      } finally {
-        setFeedLoading(false);
+  // Fetch articles from MongoDB — defined at component level so all callers can use it
+  const fetchFeed = useCallback(async () => {
+    if (!isAuthorized) return;
+    setFeedLoading(true);
+    try {
+      const res = await api.listArticles({ limit: 50 });
+      if (res && res.items) {
+        setArticles(res.items);
       }
-    };
+    } catch (e) {
+      showStatus("error", `Failed to load feed: ${e.message}`);
+    } finally {
+      setFeedLoading(false);
+    }
+  }, [isAuthorized]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
     if (isAuthorized) {
       fetchFeed();
     }
-  }, [isAuthorized]);
+  }, [isAuthorized]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Show status toast helper
   const showStatus = (type, text) => {
