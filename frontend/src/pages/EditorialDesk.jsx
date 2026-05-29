@@ -449,8 +449,10 @@ function LoginScreen({ onLogin }) {
   );
 }
 
+const DEFAULT_KEY = "LEONIDA2026";
+
 export default function EditorialDesk() {
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem(STORAGE_KEY));
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem(STORAGE_KEY) || DEFAULT_KEY);
   const [tab, setTab] = useState("queue");
   const [stats, setStats] = useState(null);
 
@@ -462,17 +464,14 @@ export default function EditorialDesk() {
     } catch (_) {}
   }, [apiKey]);
 
-  useEffect(() => { loadStats(); const t = setInterval(loadStats, 30000); return () => clearInterval(t); }, [loadStats]);
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, apiKey);
+    loadStats();
+    const t = setInterval(loadStats, 30000);
+    return () => clearInterval(t);
+  }, [loadStats]);
 
-  const login = (key) => { localStorage.setItem(STORAGE_KEY, key); setApiKey(key); };
-  const logout = () => { localStorage.removeItem(STORAGE_KEY); setApiKey(null); };
-
-  if (!apiKey) return (
-    <>
-      <style>{DESK_CSS}</style>
-      <LoginScreen onLogin={login} />
-    </>
-  );
+  const logout = () => { localStorage.removeItem(STORAGE_KEY); setApiKey(DEFAULT_KEY); };
 
   return (
     <>
