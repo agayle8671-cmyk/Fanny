@@ -1,73 +1,597 @@
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, Header, Query
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Header, Query, BackgroundTasks
 from fastapi.responses import Response
+from fastapi.concurrency import run_in_threadpool
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-import os
-import io
-import logging
+import os, io, logging, uuid, asyncio, hashlib, re, html
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Optional
-import uuid
+from typing import List, Optional, Any, Dict
 from datetime import datetime, timezone, timedelta
 from PIL import Image, ImageDraw, ImageFont
-
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
+# ── MongoDB ────────────────────────────────────────────────────────────────────
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-INGEST_TOKEN = os.environ.get('INGEST_TOKEN', '')
+INGEST_TOKEN   = os.environ.get('INGEST_TOKEN', '')
+EDITORIAL_KEY  = os.environ.get('EDITORIAL_KEY', 'LEONIDA2026')
+GROQ_API_KEY   = os.environ.get('GROQ_API_KEY', '')
 
-# Create the main app without a prefix
 app = FastAPI(title="Leonida Vice API")
-
-# Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(levelname)s %(message)s')
+logger = logging.getLogger(__name__)
 
-# ── Existing status models ──
+# ══════════════════════════════════════════════════════════════════════════════
+# SOURCES CONFIG  (29 verified live sources, audited 2026-05-06)
+# ══════════════════════════════════════════════════════════════════════════════
+DEFAULT_SOURCES = [
+    # TIER 1 — GTA-dedicated
+    {"name": "Rockstar Intel",         "url": "https://rockstarintel.com/feed/",              "type": "rss", "category": "Leaks",   "quota": 5},
+    {"name": "GTA BOOM",               "url": "https://www.gtaboom.com/feed/",                "type": "rss", "category": "World",   "quota": 5},
+    {"name": "Reddit r/GTA6",          "url": "https://www.reddit.com/r/GTA6.rss",            "type": "rss", "category": "Leaks",   "quota": 4},
+    {"name": "Reddit r/GrandTheftAutoVI","url":"https://www.reddit.com/r/GrandTheftAutoVI/.rss","type":"rss","category": "Leaks",   "quota": 3},
+    {"name": "Reddit r/GTAOnline",     "url": "https://www.reddit.com/r/gtaonline.rss",       "type": "rss", "category": "World",   "quota": 2},
+    {"name": "Reddit r/GTA6unmoderated","url":"https://www.reddit.com/r/GTA6unmoderated/.rss","type": "rss", "category": "Leaks",   "quota": 2},
+    # TIER 1 — Investigative
+    {"name": "VGC",                    "url": "https://www.videogameschronicle.com/feed/",    "type": "rss", "category": "Leaks",   "quota": 5},
+    {"name": "Insider Gaming",         "url": "https://insider-gaming.com/feed/",             "type": "rss", "category": "Leaks",   "quota": 5},
+    {"name": "Bloomberg Gaming",       "url": "https://feeds.bloomberg.com/technology/news.rss","type":"rss","category": "Leaks",   "quota": 3},
+    {"name": "Game File",              "url": "https://stephentotilo.substack.com/feed",      "type": "rss", "category": "World",   "quota": 3},
+    {"name": "Digital Foundry",        "url": "https://www.digitalfoundry.net/feed",          "type": "rss", "category": "Tech",    "quota": 3},
+    # TIER 2 — Major journalism
+    {"name": "IGN",                    "url": "https://feeds.feedburner.com/ign/games-all",   "type": "rss", "category": "World",   "quota": 4},
+    {"name": "GameSpot",               "url": "https://www.gamespot.com/feeds/mashup/",       "type": "rss", "category": "World",   "quota": 4},
+    {"name": "Eurogamer",              "url": "https://www.eurogamer.net/?format=rss",        "type": "rss", "category": "World",   "quota": 4},
+    {"name": "PC Gamer",               "url": "https://www.pcgamer.com/rss/",                 "type": "rss", "category": "Tech",    "quota": 4},
+    {"name": "GamesRadar",             "url": "https://www.gamesradar.com/rss/",              "type": "rss", "category": "World",   "quota": 4},
+    {"name": "Game Rant",              "url": "https://gamerant.com/feed/",                   "type": "rss", "category": "World",   "quota": 3},
+    {"name": "Dexerto",                "url": "https://www.dexerto.com/feed/",                "type": "rss", "category": "World",   "quota": 4},
+    {"name": "Push Square",            "url": "https://www.pushsquare.com/feeds/latest",      "type": "rss", "category": "World",   "quota": 4},
+    {"name": "Rock Paper Shotgun",     "url": "https://www.rockpapershotgun.com/feed",        "type": "rss", "category": "World",   "quota": 3},
+    {"name": "Polygon",                "url": "https://www.polygon.com/rss/index.xml",        "type": "rss", "category": "World",   "quota": 3},
+    {"name": "MP1st",                  "url": "https://mp1st.com/feed",                       "type": "rss", "category": "World",   "quota": 3},
+    # TIER 3 — Broad gaming
+    {"name": "Screen Rant",            "url": "https://screenrant.com/feed/",                 "type": "rss", "category": "World",   "quota": 2},
+    {"name": "The Verge",              "url": "https://www.theverge.com/rss/index.xml",       "type": "rss", "category": "Tech",    "quota": 2},
+    {"name": "Variety Gaming",         "url": "https://variety.com/v/gaming/feed/",           "type": "rss", "category": "World",   "quota": 2},
+    {"name": "The Guardian Games",     "url": "https://www.theguardian.com/games/rss",        "type": "rss", "category": "World",   "quota": 2},
+    {"name": "WhatCulture Gaming",     "url": "https://whatculture.com/gaming/feed",          "type": "rss", "category": "World",   "quota": 2},
+    {"name": "Attack of the Fanboy",   "url": "https://attackofthefanboy.com/feed/",          "type": "rss", "category": "World",   "quota": 2},
+    # TIER 4 — YouTube (via Atom feed)
+    {"name": "GTA Series Videos",      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCKk076mm-7JjLxJcFSXIPJA","type":"youtube","category":"Media","quota":4},
+    {"name": "Typical Gamer",          "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCpqXJOEqGS-TCnazcHCo0rA","type":"youtube","category":"Media","quota":2},
+    {"name": "IGN Video",              "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCKy1dAqELo0zrOtPkf0eTMw","type":"youtube","category":"Media","quota":3},
+    {"name": "Eurogamer Video",        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCciKycgzURdymx-GRSY2_dA","type":"youtube","category":"Media","quota":2},
+]
+
+GTA6_KEYWORDS = [
+    "gta 6","gta vi","gta6","gtavi","grand theft auto 6","grand theft auto vi",
+    "rockstar games","rockstar","take-two","take two interactive","strauss zelnick",
+    "jason duval","lucia caminos","jason and lucia","lucia","jason duval",
+    "brian heder","cal hampton","boobie ike","raul bautista","dre'quan priest",
+    "leonida","state of leonida","vice city","vice beach","little cuba","tequesta",
+    "stockyard","port vc","mariana county","kelly county","port gellhorn",
+    "ambrosia county","mount kalaga","grassrivers","leonida keys",
+    "rage engine","bawsaq","lcn","shark card","gta online","gta vi online","gta 6 online",
+    "v-rock","relationship bar","dual protagonist","project americas",
+    "november 19","nov 19","november 19 2026","gta vi trailer","gta 6 trailer",
+    "gta vi release","gta 6 release","release date","gta vi delay","gta 6 delay",
+    "shinyhunters","rockstar hack","data breach","2022 leak","gta vi leak","gta 6 leak",
+    "digital foundry","jason schreier","stephen totilo","tom henderson",
+    "ps5 pro","pssr","path tracing","content complete","fiscal 2027","fy2027",
+    "tez2","gtaforums","caracara","sandking","hellion","buffalo stx","ifruit",
+    "cctv detection","zip-tie","physical loot","donked","bermuda triangle",
+]
+
+NEGATIVE_KEYWORDS = [
+    "minecraft","fortnite","call of duty","warzone","pokemon","zelda","mario",
+    "fifa","nba 2k","madden","halo","valorant","apex legends","overwatch","diablo",
+    "elden ring","cyberpunk","starfield","baldur","dragon age","witcher",
+    "monster hunter","league of legends","dota","hearthstone","world of warcraft",
+    "final fantasy","spider-man","god of war","horizon forbidden","destiny",
+]
+
+VALID_CATEGORIES = ["Leaks", "Tech", "Story", "Media", "World", "Markets"]
+
+def normalize_category(cat: Optional[str]) -> str:
+    if not cat:
+        return "World"
+    c = cat.lower().strip()
+    if c in ("intel", "news", "investigations"): return "Leaks"
+    if c in ("trailers", "trailer", "youtube", "video", "vehicles"): return "Media"
+    if c in ("vice city",): return "World"
+    for v in VALID_CATEGORIES:
+        if v.lower() == c: return v
+    return "World"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SCRAPER ENGINE
+# ══════════════════════════════════════════════════════════════════════════════
+_scraper_running = False
+_last_run_id: Optional[str] = None
+
+def _url_hash(url: str) -> str:
+    return hashlib.sha256(url.encode()).hexdigest()[:16]
+
+def _clean_html(text: str) -> str:
+    text = re.sub(r'<[^>]+>', ' ', text)
+    text = html.unescape(text)
+    return re.sub(r'\s+', ' ', text).strip()
+
+def _is_gta6_relevant(title: str, excerpt: str, quota: int) -> bool:
+    title_l = title.lower()
+    body_l   = (title_l + " " + (excerpt or "").lower())
+    if any(kw in title_l for kw in NEGATIVE_KEYWORDS):
+        return False
+    title_hits = sum(1 for kw in GTA6_KEYWORDS if kw in title_l)
+    body_hits  = sum(1 for kw in GTA6_KEYWORDS if kw in body_l)
+    if quota <= 2:
+        return title_hits >= 1 or body_hits >= 2
+    return body_hits >= 1
+
+def _extract_yt_thumbnail(video_id: str, quality: str = "hqdefault") -> str:
+    return f"https://img.youtube.com/vi/{video_id}/{quality}.jpg"
+
+async def _fetch_rss(source: dict) -> List[dict]:
+    """Fetch and parse an RSS/Atom/YouTube feed. Returns list of raw article dicts."""
+    import feedparser, httpx
+    is_youtube = source["type"] == "youtube"
+    url = source["url"]
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "application/rss+xml,application/atom+xml,application/xml,text/xml,*/*",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=headers) as cli:
+            resp = await cli.get(url)
+        if resp.status_code != 200:
+            raise Exception(f"HTTP {resp.status_code}")
+        feed = feedparser.parse(resp.text)
+    except Exception as e:
+        raise Exception(f"Fetch error for {source['name']}: {e}")
+
+    results = []
+    seen_hashes = set()
+    for entry in feed.entries:
+        link = entry.get("link") or entry.get("id","")
+        if not link:
+            continue
+        url_hash = _url_hash(link)
+        if url_hash in seen_hashes:
+            continue
+        seen_hashes.add(url_hash)
+
+        title   = _clean_html(entry.get("title","")).strip() or "Untitled"
+        raw_sum = entry.get("summary","") or entry.get("description","") or ""
+        excerpt = _clean_html(raw_sum)[:300]
+
+        # Thumbnail
+        image_thumbnail = None
+        video_url       = None
+        video_thumbnail = None
+        is_video        = is_youtube
+
+        if is_youtube:
+            yt_id = entry.get("yt_videoid") or ""
+            if yt_id:
+                video_url       = f"https://www.youtube.com/watch?v={yt_id}"
+                video_thumbnail = _extract_yt_thumbnail(yt_id)
+                image_thumbnail = video_thumbnail
+                is_video        = True
+        else:
+            # media:thumbnail
+            media = entry.get("media_thumbnail") or []
+            if isinstance(media, list) and media:
+                image_thumbnail = media[0].get("url")
+            elif isinstance(media, dict):
+                image_thumbnail = media.get("url")
+            # enclosure
+            if not image_thumbnail:
+                enc = entry.get("enclosures", [])
+                if enc and enc[0].get("type","").startswith("image"):
+                    image_thumbnail = enc[0].get("href") or enc[0].get("url")
+
+        # Published
+        published_at = None
+        if entry.get("published_parsed"):
+            try:
+                import time
+                published_at = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc).isoformat()
+            except Exception:
+                pass
+
+        results.append({
+            "title":          title,
+            "excerpt":        excerpt or None,
+            "url_hash":       url_hash,
+            "source_url":     link,
+            "image_thumbnail":image_thumbnail,
+            "video_url":      video_url,
+            "video_thumbnail":video_thumbnail,
+            "is_video":       is_video,
+            "source_name":    source["name"],
+            "default_category": source["category"],
+            "published_at":   published_at,
+        })
+    return results
+
+async def _fetch_og_image(url: str) -> Optional[str]:
+    """Try to fetch og:image from an article's HTML."""
+    import httpx
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; LeonidaViceBot/1.0)"}
+        async with httpx.AsyncClient(timeout=8, follow_redirects=True, headers=headers) as cli:
+            r = await cli.get(url)
+        if r.status_code != 200:
+            return None
+        m = re.search(r'<meta[^>]+(?:property=["\']og:image["\']|name=["\']og:image["\'])[^>]*content=["\']([^"\']+)["\']', r.text, re.I)
+        if not m:
+            m = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]*(?:property=["\']og:image["\']|name=["\']og:image["\'])', r.text, re.I)
+        return m.group(1).strip() if m else None
+    except Exception:
+        return None
+
+async def run_scraper_pipeline() -> str:
+    """Main scrape pipeline. Returns run_id."""
+    global _scraper_running, _last_run_id
+    if _scraper_running:
+        return _last_run_id or "already_running"
+
+    _scraper_running = True
+    run_id = str(uuid.uuid4())
+    _last_run_id = run_id
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    run_doc = {
+        "runId":             run_id,
+        "startedAt":         now_iso,
+        "completedAt":       None,
+        "status":            "running",
+        "articlesFound":     0,
+        "articlesNew":       0,
+        "sourcesProcessed":  0,
+        "sourcesFailed":     0,
+        "errorMsg":          None,
+    }
+    await db.scraper_runs.insert_one(run_doc)
+
+    articles_found = 0
+    articles_new   = 0
+    sources_ok     = 0
+    sources_fail   = 0
+
+    try:
+        sources = await db.scraper_sources.find({"isActive": True}, {"_id": 0}).to_list(100)
+        if not sources:
+            sources = DEFAULT_SOURCES
+        logger.info(f"[Scraper] Starting run {run_id} — {len(sources)} sources")
+
+        for src in sources:
+            try:
+                items = await _fetch_rss(src)
+                articles_found += len(items)
+
+                for item in items[:src.get("quota", 5)]:
+                    title   = item["title"]
+                    excerpt = item.get("excerpt") or ""
+
+                    # GTA6 relevance gate (YouTube sources skip keyword check)
+                    is_yt = src.get("type") == "youtube"
+                    if not is_yt and not _is_gta6_relevant(title, excerpt, src.get("quota", 5)):
+                        continue
+
+                    url_hash = item["url_hash"]
+
+                    # Dedup check
+                    existing = await db.scraped_articles.find_one({"urlHash": url_hash})
+                    if existing:
+                        continue
+
+                    # OG image fetch if no thumbnail
+                    thumb = item.get("image_thumbnail")
+                    if not thumb and not item.get("video_thumbnail"):
+                        thumb = await _fetch_og_image(item["source_url"])
+
+                    if not thumb and not item.get("video_thumbnail"):
+                        continue  # no image = skip
+
+                    doc = {
+                        "id":             str(uuid.uuid4()),
+                        "slug":           re.sub(r'[^a-z0-9]+', '-', title.lower())[:80].strip('-') + "-" + url_hash[:6],
+                        "title":          title,
+                        "excerpt":        excerpt or None,
+                        "category":       normalize_category(item.get("default_category")),
+                        "sourceUrl":      item["source_url"],
+                        "urlHash":        url_hash,
+                        "imageThumbnail": thumb,
+                        "videoUrl":       item.get("video_url"),
+                        "videoThumbnail": item.get("video_thumbnail"),
+                        "isVideo":        item.get("is_video", False),
+                        "sourceName":     item["source_name"],
+                        "newsValueScore": 50,
+                        "status":         "pending",
+                        "aiSummary":      None,
+                        "aiContent":      None,
+                        "aiTags":         None,
+                        "aiProcessed":    False,
+                        "isFeatured":     False,
+                        "publishedAt":    item.get("published_at"),
+                        "scrapedAt":      now_iso,
+                        "rejectionReason":None,
+                        "approvedAt":     None,
+                        # Legacy compat fields
+                        "body":           [],
+                        "author":         None,
+                        "date":           None,
+                        "readTime":       None,
+                        "heroImage":      thumb,
+                        "tags":           [],
+                    }
+                    await db.scraped_articles.insert_one(doc)
+                    articles_new += 1
+
+                await db.scraper_sources.update_one(
+                    {"name": src["name"]},
+                    {"$set": {"lastScrapedAt": now_iso, "lastError": None}},
+                    upsert=True,
+                )
+                sources_ok += 1
+                logger.info(f"[Scraper] {src['name']}: {len(items)} found, {articles_new} new total")
+
+            except Exception as e:
+                sources_fail += 1
+                logger.warning(f"[Scraper] {src['name']} failed: {e}")
+                await db.scraper_sources.update_one(
+                    {"name": src["name"]},
+                    {"$set": {"lastError": str(e)}},
+                    upsert=True,
+                )
+
+        await db.scraper_runs.update_one(
+            {"runId": run_id},
+            {"$set": {
+                "completedAt":      datetime.now(timezone.utc).isoformat(),
+                "status":           "completed",
+                "articlesFound":    articles_found,
+                "articlesNew":      articles_new,
+                "sourcesProcessed": sources_ok,
+                "sourcesFailed":    sources_fail,
+            }}
+        )
+        logger.info(f"[Scraper] Run {run_id} complete — {articles_new} new articles")
+
+    except Exception as e:
+        logger.error(f"[Scraper] Pipeline failed: {e}")
+        await db.scraper_runs.update_one(
+            {"runId": run_id},
+            {"$set": {"status": "failed", "errorMsg": str(e), "completedAt": datetime.now(timezone.utc).isoformat()}}
+        )
+    finally:
+        _scraper_running = False
+
+    return run_id
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AI SUMMARIZER (Groq)
+# ══════════════════════════════════════════════════════════════════════════════
+LEONIDA_WORLD_KNOWLEDGE = """
+== LEONIDA WORLD KNOWLEDGE ==
+GAME: Grand Theft Auto VI. State of Leonida (Florida analog). Release: November 19, 2026. PS5 & Xbox Series X|S.
+PROTAGONISTS: Jason Duval (Army vet, smuggler for Brian Heder in Leonida Keys) and Lucia Caminos (first female GTA protagonist, ex-Leonida Penitentiary).
+SETTING: Vice Beach, Little Cuba, Tequesta, Stockyard, Port VC (Vice City districts); Mariana County (Keys), Grassrivers (Everglades), Mount Kalaga, Port Gellhorn.
+TECH: RAGE engine, 30fps, RTGI, hair strand physics. Internal codename: Project Americas.
+GAMEPLAY: CCTV detection, zip-tie restraint, physical loot bags, NPC local reputation, Dead-Eye (Jason), Auto Dialer (Lucia).
+RADIO: V-Rock returns. "Love Is a Long Road" (Tom Petty), "Hot Together" (Pointer Sisters), "Everybody Have Fun Tonight" (Wang Chung).
+== END WORLD KNOWLEDGE ==
+"""
+
+JOURNALIST_SYSTEM = f"""You are a senior investigative journalist for The Leonida Vice — an underground intelligence publication tracking GTA VI.
+
+{LEONIDA_WORLD_KNOWLEDGE}
+
+RULES:
+- Only report facts from the source content. Never invent, infer, or fabricate.
+- Terse, punchy, noir-adjacent writing. Present tense. Short sentences.
+- Keep summaries to 2-3 sentences (60-120 words).
+- Do NOT start with "The article" or restate the headline.
+- After summary, add: CONFIDENCE: high|medium|low
+- Then: TAGS: tag1, tag2, tag3"""
+
+FULL_ARTICLE_SYSTEM = f"""You are a senior investigative journalist for The Leonida Vice.
+
+{LEONIDA_WORLD_KNOWLEDGE}
+
+RULES:
+- Only report facts from source. Never fabricate.
+- Write 3 paragraphs: (1) Core facts (2) Why it matters for GTA VI fans (3) Context + Leonida Vice take.
+- 180-280 words. No headers. No bullets. Prose only. Present tense.
+- Do NOT start with "The article" or restate the headline."""
+
+async def _groq_chat(messages: list, max_tokens: int = 300, model: str = "llama3-70b-8192") -> Optional[str]:
+    """Call Groq API. Returns content string or None on failure."""
+    key = GROQ_API_KEY
+    if not key:
+        return None
+    import httpx
+    payload = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": 0.2,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30) as cli:
+            r = await cli.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                json=payload,
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            )
+        if r.status_code != 200:
+            logger.warning(f"[Groq] HTTP {r.status_code}: {r.text[:200]}")
+            return None
+        return r.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        logger.warning(f"[Groq] Error: {e}")
+        return None
+
+def _best_source_text(title: str, excerpt: Optional[str], content: Optional[str] = None) -> str:
+    if excerpt and len(excerpt.strip()) >= 20:
+        return excerpt.strip()
+    if content and len(content.strip()) >= 20:
+        return content.strip()[:800]
+    return title
+
+async def ai_summarize(article: dict, groq_key: Optional[str] = None) -> dict:
+    """Returns dict with aiSummary, aiContent, aiTags, newsValueScore, aiProcessed."""
+    global GROQ_API_KEY
+    original_key = GROQ_API_KEY
+    if groq_key:
+        GROQ_API_KEY = groq_key
+
+    title    = article.get("title", "")
+    excerpt  = article.get("excerpt")
+    content  = article.get("content")
+    src_name = article.get("sourceName", "Unknown")
+    category = article.get("category", "World")
+    source_text = _best_source_text(title, excerpt, content)
+
+    result = {"aiProcessed": False, "aiSummary": None, "aiContent": None, "aiTags": [], "newsValueScore": 50}
+
+    try:
+        user_prompt = (
+            f'Category: {category}\nSource: {src_name}\nHeadline: "{title}"\n'
+            f'Raw content: "{source_text[:600]}"\n\n'
+            f'Write a 2-3 sentence Leonida Vice intel briefing. Then TAGS: tag1, tag2, tag3.'
+        )
+        raw = await _groq_chat(
+            [{"role": "system", "content": JOURNALIST_SYSTEM}, {"role": "user", "content": user_prompt}],
+            max_tokens=250,
+        )
+        if raw:
+            conf_m = re.search(r'CONFIDENCE:\s*(high|medium|low)', raw, re.I)
+            tags_m = re.search(r'TAGS:\s*(.+)$', raw, re.I | re.M)
+            summary = re.sub(r'CONFIDENCE:\s*(high|medium|low).*', '', raw, flags=re.I|re.S)
+            summary = re.sub(r'TAGS:.+$', '', summary, flags=re.I|re.M).strip()
+            confidence = conf_m.group(1).lower() if conf_m else "medium"
+            tags = [t.strip() for t in tags_m.group(1).split(",")][:5] if tags_m else []
+            score = {"high": 85, "medium": 60, "low": 35}.get(confidence, 60)
+            result.update({"aiSummary": summary if len(summary) > 20 else None, "aiTags": tags, "newsValueScore": score})
+
+        # Full article content
+        full_prompt = (
+            f'Category: {category}\nSource: {src_name}\nHeadline: "{title}"\n'
+            f'Raw content: "{source_text[:800]}"\n\nWrite a 3-paragraph Leonida Vice intel report. 180-280 words.'
+        )
+        full = await _groq_chat(
+            [{"role": "system", "content": FULL_ARTICLE_SYSTEM}, {"role": "user", "content": full_prompt}],
+            max_tokens=400,
+        )
+        if full and len(full.strip()) > 80:
+            result["aiContent"] = full.strip()
+
+        result["aiProcessed"] = True
+    except Exception as e:
+        logger.warning(f"[AI] Summarize failed for '{title[:60]}': {e}")
+    finally:
+        GROQ_API_KEY = original_key
+
+    return result
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SCHEDULER (APScheduler)
+# ══════════════════════════════════════════════════════════════════════════════
+_next_run_time: Optional[datetime] = None
+
+async def _scheduled_scrape():
+    global _next_run_time
+    logger.info("[Scheduler] Running daily scrape")
+    try:
+        await run_scraper_pipeline()
+    except Exception as e:
+        logger.error(f"[Scheduler] Scrape failed: {e}")
+    _next_run_time = _compute_next_run()
+
+async def _audit_missing_summaries():
+    """Backfill AI summaries for published articles missing them."""
+    if not GROQ_API_KEY:
+        return
+    cursor = db.scraped_articles.find({"status": "published", "aiProcessed": False}, {"_id": 0})
+    articles = await cursor.to_list(50)
+    if not articles:
+        return
+    logger.info(f"[Audit] Backfilling {len(articles)} articles missing AI summaries")
+    for art in articles:
+        try:
+            updates = await ai_summarize(art)
+            await db.scraped_articles.update_one(
+                {"id": art["id"]},
+                {"$set": updates}
+            )
+            await asyncio.sleep(0.6)
+        except Exception as e:
+            logger.warning(f"[Audit] Failed to summarize {art.get('id')}: {e}")
+
+def _compute_next_run() -> datetime:
+    now = datetime.now(timezone.utc)
+    nxt = now.replace(hour=6, minute=0, second=0, microsecond=0)
+    if nxt <= now:
+        nxt = nxt + timedelta(days=1)
+    return nxt
+
+def _get_next_run_str() -> str:
+    if not _next_run_time:
+        return "Not scheduled"
+    diff = _next_run_time - datetime.now(timezone.utc)
+    if diff.total_seconds() <= 0:
+        return "Imminent"
+    hrs  = int(diff.total_seconds() // 3600)
+    mins = int((diff.total_seconds() % 3600) // 60)
+    return f"{hrs}h {mins}m"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AUTH HELPERS
+# ══════════════════════════════════════════════════════════════════════════════
 class StatusCheck(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     client_name: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-
 class StatusCheckCreate(BaseModel):
     client_name: str
 
-
-import json
-
-# ── Scraped article models (match the scraper's article schema) ──
 class ScrapedArticle(BaseModel):
-    """Schema mirrors the api-server / scraper output."""
     model_config = ConfigDict(extra="allow")
-
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     slug: str
     title: str
     excerpt: Optional[str] = None
     aiSummary: Optional[str] = None
+    aiContent: Optional[str] = None
+    aiTags: Optional[List[str]] = None
     category: Optional[str] = None
     sourceName: Optional[str] = None
     sourceUrl: Optional[str] = None
     url: Optional[str] = None
     imageThumbnail: Optional[str] = None
     videoThumbnail: Optional[str] = None
+    videoUrl: Optional[str] = None
     isVideo: bool = False
     newsValueScore: int = 50
     commentsCount: int = 0
-    publishedAt: Optional[str] = None  # ISO string
-    scrapedAt: Optional[str] = None    # ISO string
-    
-    # Rich editorial fields added for the Editorial Desk CMS
+    publishedAt: Optional[str] = None
+    scrapedAt: Optional[str] = None
+    status: str = "pending"
+    aiProcessed: bool = False
+    isFeatured: bool = False
     author: Optional[str] = None
     date: Optional[str] = None
     readTime: Optional[str] = None
@@ -75,12 +599,9 @@ class ScrapedArticle(BaseModel):
     tags: Optional[List[str]] = None
     body: Optional[List[dict]] = None
 
-
 class IngestPayload(BaseModel):
     articles: List[ScrapedArticle]
 
-
-# ── Auth dependency ──
 def require_ingest_token(authorization: Optional[str] = Header(None)):
     if not INGEST_TOKEN:
         raise HTTPException(status_code=500, detail="Server ingest token not configured")
@@ -90,21 +611,25 @@ def require_ingest_token(authorization: Optional[str] = Header(None)):
         raise HTTPException(status_code=403, detail="Invalid ingest token")
     return True
 
+def require_editorial_key(x_editorial_key: Optional[str] = Header(None)):
+    if not x_editorial_key or x_editorial_key != EDITORIAL_KEY:
+        raise HTTPException(status_code=401, detail="Invalid or missing editorial key")
+    return True
 
-# ── Existing routes ──
+# ══════════════════════════════════════════════════════════════════════════════
+# BASIC ROUTES
+# ══════════════════════════════════════════════════════════════════════════════
 @api_router.get("/")
 async def root():
-    return {"message": "Hello World"}
-
+    return {"message": "Leonida Vice API"}
 
 @api_router.post("/status", response_model=StatusCheck)
 async def create_status_check(input: StatusCheckCreate):
-    status_obj = StatusCheck(**input.model_dump())
-    doc = status_obj.model_dump()
+    obj = StatusCheck(**input.model_dump())
+    doc = obj.model_dump()
     doc['timestamp'] = doc['timestamp'].isoformat()
     await db.status_checks.insert_one(doc)
-    return status_obj
-
+    return obj
 
 @api_router.get("/status", response_model=List[StatusCheck])
 async def get_status_checks():
@@ -114,26 +639,51 @@ async def get_status_checks():
             r['timestamp'] = datetime.fromisoformat(r['timestamp'])
     return rows
 
+# ══════════════════════════════════════════════════════════════════════════════
+# ARTICLES — public read endpoints
+# ══════════════════════════════════════════════════════════════════════════════
+@api_router.get("/articles")
+async def list_articles(
+    category: Optional[str] = None,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    query: Dict[str, Any] = {"status": "published"}
+    if category:
+        query["category"] = category
+    cursor = db.scraped_articles.find(query, {"_id": 0}).sort("publishedAt", -1).skip(offset).limit(limit)
+    items = await cursor.to_list(length=limit)
+    total = await db.scraped_articles.count_documents(query)
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
 
-def normalize_category(cat: Optional[str]) -> str:
-    if not cat:
-        return "World"
-    c_lower = cat.lower().strip()
-    if c_lower in ("intel", "news"):
-        return "World"
-    if c_lower in ("trailers", "trailer"):
-        return "Media"
-    valid = ["Leaks", "Tech", "Story", "Media", "World", "Markets"]
-    for v in valid:
-        if v.lower() == c_lower:
-            return v
-    return "World"
+@api_router.get("/articles/trending")
+async def trending_articles(limit: int = Query(10, ge=1, le=50)):
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+    cursor = db.scraped_articles.find(
+        {"status": "published", "publishedAt": {"$gte": cutoff}}, {"_id": 0}
+    ).sort("newsValueScore", -1).limit(limit)
+    items = await cursor.to_list(length=limit)
+    if not items:
+        cursor = db.scraped_articles.find({"status": "published"}, {"_id": 0}).sort("newsValueScore", -1).limit(limit)
+        items = await cursor.to_list(length=limit)
+    return {"items": items}
 
+@api_router.get("/articles/{slug}")
+async def get_article(slug: str):
+    doc = await db.scraped_articles.find_one({"slug": slug, "status": "published"}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Article not found")
+    return doc
 
-# ── Scraped articles ingest + read ──
+@api_router.delete("/articles/{slug}")
+async def delete_article(slug: str, _: bool = Depends(require_ingest_token)):
+    res = await db.scraped_articles.delete_one({"slug": slug})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Article not found")
+    return {"message": "Deleted"}
+
 @api_router.post("/articles/ingest")
 async def ingest_articles(payload: IngestPayload, _: bool = Depends(require_ingest_token)):
-    """Upsert scraped articles. Idempotent by slug."""
     now_iso = datetime.now(timezone.utc).isoformat()
     upserted = 0
     for art in payload.articles:
@@ -141,6 +691,12 @@ async def ingest_articles(payload: IngestPayload, _: bool = Depends(require_inge
         doc['category'] = normalize_category(doc.get('category'))
         if not doc.get('scrapedAt'):
             doc['scrapedAt'] = now_iso
+        if not doc.get('status'):
+            doc['status'] = 'published'
+        if not doc.get('urlHash') and doc.get('sourceUrl'):
+            doc['urlHash'] = _url_hash(doc['sourceUrl'])
+        if not doc.get('heroImage') and doc.get('imageThumbnail'):
+            doc['heroImage'] = doc['imageThumbnail']
         await db.scraped_articles.update_one(
             {"slug": doc['slug']},
             {"$set": doc},
@@ -149,125 +705,296 @@ async def ingest_articles(payload: IngestPayload, _: bool = Depends(require_inge
         upserted += 1
     return {"upserted": upserted, "received": len(payload.articles)}
 
+# ══════════════════════════════════════════════════════════════════════════════
+# EDITORIAL DESK — AUTH-GATED
+# ══════════════════════════════════════════════════════════════════════════════
 
-@api_router.get("/articles")
-async def list_articles(
+# ── Stats ────────────────────────────────────────────────────────────────────
+@api_router.get("/editorial/stats")
+async def editorial_stats(_: bool = Depends(require_editorial_key)):
+    cutoff_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    pending, published, rejected, today_pub = await asyncio.gather(
+        db.scraped_articles.count_documents({"status": "pending"}),
+        db.scraped_articles.count_documents({"status": "published"}),
+        db.scraped_articles.count_documents({"status": "rejected"}),
+        db.scraped_articles.count_documents({"status": "published", "approvedAt": {"$gte": cutoff_24h}}),
+    )
+    return {"pending": pending, "published": published, "rejected": rejected, "todayPublished": today_pub}
+
+# ── Queue ─────────────────────────────────────────────────────────────────────
+@api_router.get("/editorial/queue")
+async def editorial_queue(
+    status: str = "pending",
     category: Optional[str] = None,
-    limit: int = Query(20, ge=1, le=100),
+    search: Optional[str] = None,
+    limit: int = Query(20, ge=1, le=50),
     offset: int = Query(0, ge=0),
+    _: bool = Depends(require_editorial_key),
 ):
-    """Paginated newswire feed sorted by publishedAt desc."""
-    query = {}
-    if category:
-        query['category'] = category
-    cursor = db.scraped_articles.find(query, {"_id": 0}).sort("publishedAt", -1).skip(offset).limit(limit)
-    items = await cursor.to_list(length=limit)
+    query: Dict[str, Any] = {"status": status}
+    if category and category != "all":
+        query["category"] = category
+    if search:
+        query["title"] = {"$regex": search, "$options": "i"}
+    sort_field = "scrapedAt" if status == "pending" else "approvedAt"
+    cursor = db.scraped_articles.find(query, {"_id": 0}).sort(sort_field, -1).skip(offset).limit(limit)
+    articles = await cursor.to_list(length=limit)
     total = await db.scraped_articles.count_documents(query)
-    return {"items": items, "total": total, "limit": limit, "offset": offset}
+    return {"articles": articles, "total": total, "limit": limit, "offset": offset}
 
+# ── Approve ───────────────────────────────────────────────────────────────────
+@api_router.post("/editorial/approve/{article_id}")
+async def approve_article(
+    article_id: str,
+    background_tasks: BackgroundTasks,
+    _: bool = Depends(require_editorial_key),
+):
+    art = await db.scraped_articles.find_one({"id": article_id}, {"_id": 0})
+    if not art:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not art.get("imageThumbnail") and not art.get("videoThumbnail"):
+        await db.scraped_articles.delete_one({"id": article_id})
+        raise HTTPException(status_code=422, detail="Deleted — no thumbnail. Only articles with images can be published.")
 
-@api_router.get("/articles/trending")
-async def trending_articles(limit: int = Query(10, ge=1, le=50)):
-    """Top items by newsValueScore from the last 48 hours."""
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
-    cursor = db.scraped_articles.find(
-        {"publishedAt": {"$gte": cutoff}},
-        {"_id": 0},
-    ).sort("newsValueScore", -1).limit(limit)
-    items = await cursor.to_list(length=limit)
-    # Fallback: if nothing in the last 48h, return top scored overall
-    if not items:
-        cursor = db.scraped_articles.find({}, {"_id": 0}).sort("newsValueScore", -1).limit(limit)
-        items = await cursor.to_list(length=limit)
-    return {"items": items}
+    now_iso = datetime.now(timezone.utc).isoformat()
+    # Run AI summarization inline before publishing if not yet processed
+    if not art.get("aiProcessed") and GROQ_API_KEY:
+        try:
+            ai_updates = await ai_summarize(art)
+            await db.scraped_articles.update_one({"id": article_id}, {"$set": ai_updates})
+            art.update(ai_updates)
+        except Exception as e:
+            logger.warning(f"[Editorial] AI pre-summarize failed for {article_id}: {e}")
 
+    await db.scraped_articles.update_one(
+        {"id": article_id},
+        {"$set": {"status": "published", "approvedAt": now_iso, "publishedAt": art.get("publishedAt") or now_iso}}
+    )
+    return {"success": True, "title": art.get("title", "")}
 
-@api_router.get("/articles/{slug}")
-async def get_article(slug: str):
-    doc = await db.scraped_articles.find_one({"slug": slug}, {"_id": 0})
-    if not doc:
-        raise HTTPException(status_code=404, detail="Article not found")
-    return doc
+# ── Reject ────────────────────────────────────────────────────────────────────
+@api_router.post("/editorial/reject/{article_id}")
+async def reject_article(
+    article_id: str,
+    body: dict = {},
+    _: bool = Depends(require_editorial_key),
+):
+    reason = body.get("reason") if body else None
+    res = await db.scraped_articles.update_one(
+        {"id": article_id},
+        {"$set": {"status": "rejected", "rejectionReason": reason}}
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"success": True}
 
+# ── Bulk approve ──────────────────────────────────────────────────────────────
+@api_router.post("/editorial/bulk-approve")
+async def bulk_approve(
+    body: dict,
+    background_tasks: BackgroundTasks,
+    _: bool = Depends(require_editorial_key),
+):
+    ids = body.get("ids", [])
+    query = {"status": "pending"}
+    if ids:
+        query["id"] = {"$in": ids}
+    articles = await db.scraped_articles.find(query, {"_id": 0}).to_list(50)
 
-@api_router.delete("/articles/{slug}")
-async def delete_article(slug: str, _: bool = Depends(require_ingest_token)):
-    """Delete an ingested article from MongoDB."""
-    res = await db.scraped_articles.delete_one({"slug": slug})
-    if res.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Article not found")
-    return {"message": "Article deleted successfully"}
+    # Filter no-thumbnail
+    valid    = [a for a in articles if a.get("imageThumbnail") or a.get("videoThumbnail")]
+    no_thumb = [a for a in articles if not a.get("imageThumbnail") and not a.get("videoThumbnail")]
+    for a in no_thumb:
+        await db.scraped_articles.delete_one({"id": a["id"]})
 
+    background_tasks.add_task(_bulk_approve_background, valid)
+    return {"success": True, "queued": len(valid), "deletedNoThumb": len(no_thumb)}
+
+async def _bulk_approve_background(articles: list):
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for art in articles:
+        try:
+            updates = {"status": "published", "approvedAt": now_iso, "publishedAt": art.get("publishedAt") or now_iso}
+            if not art.get("aiProcessed") and GROQ_API_KEY:
+                ai_updates = await ai_summarize(art)
+                updates.update(ai_updates)
+            await db.scraped_articles.update_one({"id": art["id"]}, {"$set": updates})
+            await asyncio.sleep(0.6)
+        except Exception as e:
+            logger.warning(f"[Bulk approve] Failed {art.get('id')}: {e}")
+            await db.scraped_articles.update_one({"id": art["id"]}, {"$set": {"status": "published", "approvedAt": now_iso}})
+
+# ── Bulk reject ───────────────────────────────────────────────────────────────
+@api_router.post("/editorial/bulk-reject")
+async def bulk_reject(body: dict, _: bool = Depends(require_editorial_key)):
+    ids = body.get("ids", [])
+    if not ids:
+        raise HTTPException(status_code=400, detail="ids required")
+    for aid in ids:
+        await db.scraped_articles.update_one({"id": aid}, {"$set": {"status": "rejected"}})
+    return {"success": True, "rejected": len(ids)}
+
+# ── Unpublish ─────────────────────────────────────────────────────────────────
+@api_router.post("/editorial/unpublish/{article_id}")
+async def unpublish_article(article_id: str, _: bool = Depends(require_editorial_key)):
+    await db.scraped_articles.update_one(
+        {"id": article_id},
+        {"$set": {"status": "pending", "isFeatured": False}}
+    )
+    return {"success": True}
+
+# ── Hard delete ───────────────────────────────────────────────────────────────
+@api_router.delete("/editorial/article/{article_id}")
+async def editorial_delete_article(article_id: str, _: bool = Depends(require_editorial_key)):
+    await db.scraped_articles.delete_one({"id": article_id})
+    return {"success": True}
+
+# ── Patch article (category / summary edit) ───────────────────────────────────
+@api_router.patch("/editorial/article/{article_id}")
+async def patch_article(article_id: str, body: dict, _: bool = Depends(require_editorial_key)):
+    allowed = {"category", "aiSummary", "title", "heroImage", "imageThumbnail", "newsValueScore"}
+    updates = {k: v for k, v in body.items() if k in allowed}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No valid fields")
+    await db.scraped_articles.update_one({"id": article_id}, {"$set": updates})
+    return {"success": True}
+
+# ── AI Reprocess ──────────────────────────────────────────────────────────────
+@api_router.post("/editorial/reprocess/{article_id}")
+async def reprocess_article(article_id: str, body: dict = {}, _: bool = Depends(require_editorial_key)):
+    groq_key = body.get("groqKey") if body else None
+    art = await db.scraped_articles.find_one({"id": article_id}, {"_id": 0})
+    if not art:
+        raise HTTPException(status_code=404, detail="Not found")
+    updates = await ai_summarize(art, groq_key=groq_key or GROQ_API_KEY or None)
+    await db.scraped_articles.update_one({"id": article_id}, {"$set": updates})
+    return {"success": True, "aiSummary": updates.get("aiSummary"), "newsValueScore": updates.get("newsValueScore")}
+
+# ── Hero / Featured ───────────────────────────────────────────────────────────
+@api_router.post("/editorial/set-hero/{article_id}")
+async def set_hero(article_id: str, _: bool = Depends(require_editorial_key)):
+    await db.scraped_articles.update_many({}, {"$set": {"isFeatured": False}})
+    res = await db.scraped_articles.update_one(
+        {"id": article_id},
+        {"$set": {"isFeatured": True, "status": "published"}}
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"success": True}
+
+@api_router.get("/editorial/hero")
+async def get_hero(_: bool = Depends(require_editorial_key)):
+    doc = await db.scraped_articles.find_one({"isFeatured": True, "status": "published"}, {"_id": 0})
+    return {"hero": doc}
+
+# ── Audit ─────────────────────────────────────────────────────────────────────
+@api_router.get("/editorial/audit/missing-summaries")
+async def audit_missing(_: bool = Depends(require_editorial_key)):
+    articles = await db.scraped_articles.find(
+        {"status": "published", "aiProcessed": False}, {"_id": 0, "id": 1, "title": 1}
+    ).to_list(100)
+    return {"count": len(articles), "articles": articles}
+
+@api_router.post("/editorial/audit/repair-summaries")
+async def repair_summaries(background_tasks: BackgroundTasks, _: bool = Depends(require_editorial_key)):
+    articles = await db.scraped_articles.find(
+        {"status": "published", "aiProcessed": False}, {"_id": 0}
+    ).to_list(100)
+    background_tasks.add_task(_run_audit_repair, articles)
+    return {"message": f"Queued {len(articles)} articles for AI backfill", "count": len(articles)}
+
+async def _run_audit_repair(articles: list):
+    for art in articles:
+        try:
+            updates = await ai_summarize(art)
+            await db.scraped_articles.update_one({"id": art["id"]}, {"$set": updates})
+            await asyncio.sleep(0.6)
+        except Exception as e:
+            logger.warning(f"[Repair] Failed {art.get('id')}: {e}")
+
+# ── Sources management ────────────────────────────────────────────────────────
+@api_router.get("/editorial/sources")
+async def list_sources(_: bool = Depends(require_editorial_key)):
+    sources = await db.scraper_sources.find({}, {"_id": 0}).sort("name", 1).to_list(100)
+    return {"sources": sources}
+
+@api_router.post("/editorial/sources/{source_name}/toggle")
+async def toggle_source(source_name: str, _: bool = Depends(require_editorial_key)):
+    src = await db.scraper_sources.find_one({"name": source_name}, {"_id": 0})
+    if not src:
+        raise HTTPException(status_code=404, detail="Source not found")
+    new_state = not src.get("isActive", True)
+    await db.scraper_sources.update_one({"name": source_name}, {"$set": {"isActive": new_state}})
+    return {"success": True, "isActive": new_state, "name": source_name}
+
+# ── Scraper control ───────────────────────────────────────────────────────────
+@api_router.get("/editorial/scraper/status")
+async def scraper_status(_: bool = Depends(require_editorial_key)):
+    runs = await db.scraper_runs.find({}, {"_id": 0}).sort("startedAt", -1).limit(10).to_list(10)
+    return {
+        "isRunning":  _scraper_running,
+        "lastRunId":  _last_run_id,
+        "recentRuns": runs,
+        "nextRunIn":  _get_next_run_str(),
+    }
+
+@api_router.post("/editorial/scraper/trigger")
+async def trigger_scraper(background_tasks: BackgroundTasks, _: bool = Depends(require_editorial_key)):
+    if _scraper_running:
+        return {"message": "Scraper already running", "runId": _last_run_id}
+    background_tasks.add_task(run_scraper_pipeline)
+    return {"message": "Scrape triggered"}
+
+# ── Legacy Groq proxy (existing EditorialDesk manual parsing) ─────────────────
+import json as _json
 
 @api_router.post("/editorial/parse")
-async def parse_article(
+async def parse_article_groq(
     payload: dict,
     _: bool = Depends(require_ingest_token),
     x_groq_api_key: Optional[str] = Header(None)
 ):
-    """Proxy the raw text to Groq AI to parse it into structured editorial blocks."""
     if not x_groq_api_key:
-        raise HTTPException(status_code=400, detail="Missing Groq API Key header (X-Groq-Api-Key)")
-    
-    raw_text = payload.get("rawText", "")
+        raise HTTPException(status_code=400, detail="Missing X-Groq-Api-Key header")
+    raw_text = payload.get("rawText","")
     if not raw_text:
-        raise HTTPException(status_code=400, detail="Missing rawText in payload")
-        
-    model = payload.get("model", "llama3-70b-8192")
-    
-    headers = {
-        "Authorization": f"Bearer {x_groq_api_key}",
-        "Content-Type": "application/json"
-    }
-    
+        raise HTTPException(status_code=400, detail="Missing rawText")
+    model = payload.get("model","llama3-70b-8192")
+    import requests as _req
     system_prompt = (
-        "You are a premium editorial parsing agent for 'Leonida Vice', a high-end Grand Theft Auto VI news and database network. "
-        "Your task is to take any raw scraped article or newsletter text and transform it into a highly polished, structural JSON payload that matches our premium design requirements.\n\n"
-        "Follow these strict layout and content rules:\n"
-        "1. **Structure:** Your output must match the ScrapedArticle JSON format.\n"
-        "2. **Category:** Must fit one of the following filters: 'Leaks', 'Tech', 'Story', 'Media', 'World', 'Markets'.\n"
-        "3. **Hero Image:** Pick the most striking, cinematic, high-resolution landscape image URL related to the topic.\n"
-        "4. **Editorial Body Blocks:** Translate the article's text into an array of blocks under the 'body' key. The block array must have these types:\n"
-        "   - 'lead': The first paragraph of the article. Must start with a bold, epic opening statement. (The website will render this with a large drop-cap).\n"
-        "   - 'p': Standard narrative paragraphs. Break up text into short, readable paragraphs (3-4 sentences max).\n"
-        "   - 'h2': Section headings. Keep them short, aggressive, and in uppercase (e.g. 'RTGI ON BASE HARDWARE', 'THE 30 FPS CONVERSATION').\n"
-        "   - 'pull': An epic pullquote or short quote from a developer or analyst. Highly stylistic. Keep it punchy.\n"
-        "   - 'image': Exactly one high-quality, full-bleed middle landscape image breaking up the content halfway through the article. Must include a caption in uppercase that serves as an editorial call-out (e.g., 'VICE CITY RENDERED WITH RTGI — THE LIGHTING MODEL THAT FINALLY DOES PASTEL JUSTICE.').\n"
-        "5. **Score:** Assign a 'newsValueScore' between 0 and 100. If the score is 70 or above, it will be flagged as 'HOT' on the live feeds.\n\n"
-        "Output ONLY a raw JSON payload, no conversation, no markdown blocks. Conforming strictly to the schema of ScrapedArticle."
+        "You are a premium editorial parsing agent for 'Leonida Vice', a high-end Grand Theft Auto VI news network. "
+        "Parse raw text into a structured JSON payload with: slug, title, dek, category (one of: Leaks/Tech/Story/Media/World/Markets), "
+        "author, date, readTime, heroImage, tags (array), newsValueScore (0-100), and body (array of blocks with type: lead/p/h2/pull/image). "
+        "Output ONLY raw JSON, no markdown."
     )
-    
     groq_payload = {
         "model": model,
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Parse the following scraped text into structured JSON:\n\n{raw_text}"}
+            {"role": "user", "content": f"Parse into JSON:\n\n{raw_text}"}
         ],
         "temperature": 0.2,
         "response_format": {"type": "json_object"}
     }
-    
     try:
-        import requests
-        res = requests.post(
+        r = _req.post(
             "https://api.groq.com/openai/v1/chat/completions",
             json=groq_payload,
-            headers=headers,
-            timeout=30
+            headers={"Authorization": f"Bearer {x_groq_api_key}", "Content-Type": "application/json"},
+            timeout=30,
         )
-        if res.status_code != 200:
-            raise HTTPException(status_code=res.status_code, detail=f"Groq API Error: {res.text}")
-        
-        result_json = res.json()
-        message_content = result_json["choices"][0]["message"]["content"]
-        return json.loads(message_content)
+        if r.status_code != 200:
+            raise HTTPException(status_code=r.status_code, detail=f"Groq: {r.text}")
+        return _json.loads(r.json()["choices"][0]["message"]["content"])
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to parse article: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-
-# ── Open Graph countdown image ──
+# ══════════════════════════════════════════════════════════════════════════════
+# OG IMAGE GENERATOR
+# ══════════════════════════════════════════════════════════════════════════════
 RELEASE_DATE = datetime(2026, 11, 19, tzinfo=timezone.utc)
-
 
 def _load_font(size: int, bold: bool = False):
     candidates = [
@@ -282,16 +1009,11 @@ def _load_font(size: int, bold: bool = False):
                 pass
     return ImageFont.load_default()
 
-
 @api_router.get("/og/countdown.png")
 async def og_countdown_image():
-    """1200x630 Open Graph image with the live countdown."""
     from PIL import ImageFilter
-
     w, h = 1200, 630
     img = Image.new("RGB", (w, h), (5, 5, 5))
-
-    # Soft color blobs (vice pink, sunset orange, cyan edge)
     for (cx, cy, r, color, alpha) in [
         (200, 120, 320, (255, 42, 109), 110),
         (1050, 200, 380, (255, 123, 0), 90),
@@ -299,56 +1021,34 @@ async def og_countdown_image():
     ]:
         blob = Image.new("RGBA", (w, h), (0, 0, 0, 0))
         bd = ImageDraw.Draw(blob)
-        bd.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(*color, alpha))
+        bd.ellipse((cx-r, cy-r, cx+r, cy+r), fill=(*color, alpha))
         blob = blob.filter(ImageFilter.GaussianBlur(radius=80))
         img.paste(blob, (0, 0), blob)
-
     draw = ImageDraw.Draw(img)
-
     diff = RELEASE_DATE - datetime.now(timezone.utc)
     days = max(0, diff.days)
-
-    # Left hairlines
     for x in (60, 64):
-        draw.line([(x, 60), (x, h - 60)], fill=(255, 255, 255), width=1)
-
-    f_eyebrow = _load_font(22, bold=True)
-    draw.text((96, 70), "LEONIDA VICE  ·  THE GTA VI FAN ARCHIVE", font=f_eyebrow, fill=(5, 217, 232))
-
-    f_big = _load_font(260, bold=True)
+        draw.line([(x, 60), (x, h-60)], fill=(255,255,255), width=1)
+    draw.text((96, 70), "LEONIDA VICE  ·  THE GTA VI FAN ARCHIVE", font=_load_font(22, True), fill=(5,217,232))
+    f_big = _load_font(260, True)
     days_str = str(days)
-    bbox = draw.textbbox((0, 0), days_str, font=f_big)
-    tw = bbox[2] - bbox[0]
-    draw.text((96, 130), days_str, font=f_big, fill=(255, 255, 255))
-
-    f_label = _load_font(48, bold=True)
-    draw.text((96 + tw + 24, 250), "DAYS", font=f_label, fill=(255, 42, 109))
-    f_label_small = _load_font(22, bold=True)
-    draw.text((96 + tw + 26, 310), "UNTIL LEONIDA", font=f_label_small, fill=(200, 200, 200))
-
-    draw.line([(96, 460), (w - 96, 460)], fill=(255, 255, 255), width=2)
-
-    f_head = _load_font(54, bold=True)
-    draw.text((96, 485), "GRAND THEFT AUTO VI", font=f_head, fill=(255, 255, 255))
-
-    f_foot = _load_font(22)
-    draw.text((96, 555), "November 19, 2026  ·  PS5  ·  Xbox Series X|S", font=f_foot, fill=(180, 180, 180))
-
-    f_badge = _load_font(20, bold=True)
-    draw.text((w - 260, 555), "leonida.vice", font=f_badge, fill=(5, 217, 232))
-
+    bbox = draw.textbbox((0,0), days_str, font=f_big)
+    tw = bbox[2]-bbox[0]
+    draw.text((96, 130), days_str, font=f_big, fill=(255,255,255))
+    draw.text((96+tw+24, 250), "DAYS", font=_load_font(48, True), fill=(255,42,109))
+    draw.text((96+tw+26, 310), "UNTIL LEONIDA", font=_load_font(22, True), fill=(200,200,200))
+    draw.line([(96, 460), (w-96, 460)], fill=(255,255,255), width=2)
+    draw.text((96, 485), "GRAND THEFT AUTO VI", font=_load_font(54, True), fill=(255,255,255))
+    draw.text((96, 555), "November 19, 2026  ·  PS5  ·  Xbox Series X|S", font=_load_font(22), fill=(180,180,180))
+    draw.text((w-260, 555), "leonida.vice", font=_load_font(20, True), fill=(5,217,232))
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)
-    return Response(
-        content=buf.getvalue(),
-        media_type="image/png",
-        headers={"Cache-Control": "public, max-age=3600"},
-    )
+    return Response(content=buf.getvalue(), media_type="image/png", headers={"Cache-Control": "public, max-age=3600"})
 
-
-# Include the router in the main app
+# ══════════════════════════════════════════════════════════════════════════════
+# APP SETUP
+# ══════════════════════════════════════════════════════════════════════════════
 app.include_router(api_router)
-
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -357,33 +1057,57 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-
 @app.on_event("startup")
-async def startup_db_cleanup():
-    # Update any existing records in the database where category is "Intel" or "Trailers"
+async def startup():
+    global _next_run_time
+    # Seed sources into DB
     try:
-        # Update category "Intel" to "World"
-        res_intel = await db.scraped_articles.update_many(
-            {"category": {"$in": ["Intel", "intel"]}},
-            {"$set": {"category": "World"}}
-        )
-        # Update category "Trailers" to "Media"
-        res_trailers = await db.scraped_articles.update_many(
-            {"category": {"$in": ["Trailers", "trailers", "Trailer", "trailer"]}},
-            {"$set": {"category": "Media"}}
-        )
-        logger.info(f"Database cleanup: updated {res_intel.modified_count} intel items, {res_trailers.modified_count} trailer items.")
+        for src in DEFAULT_SOURCES:
+            await db.scraper_sources.update_one(
+                {"name": src["name"]},
+                {"$setOnInsert": {**src, "isActive": True, "lastScrapedAt": None, "lastError": None}},
+                upsert=True,
+            )
+        logger.info(f"[Startup] Seeded {len(DEFAULT_SOURCES)} sources")
     except Exception as e:
-        logger.error(f"Failed to run database startup cleanup: {e}")
+        logger.error(f"[Startup] Source seeding failed: {e}")
 
+    # DB cleanup: normalize bad categories
+    try:
+        await db.scraped_articles.update_many({"category": {"$in": ["Intel","intel"]}}, {"$set": {"category": "Leaks"}})
+        await db.scraped_articles.update_many({"category": {"$in": ["Trailers","trailers","Trailer","trailer"]}}, {"$set": {"category": "Media"}})
+        await db.scraped_articles.update_many({"category": {"$in": ["Investigations","investigations"]}}, {"$set": {"category": "Leaks"}})
+    except Exception as e:
+        logger.error(f"[Startup] Category cleanup failed: {e}")
+
+    # Add status field to existing articles that don't have it
+    try:
+        await db.scraped_articles.update_many(
+            {"status": {"$exists": False}},
+            {"$set": {"status": "published", "aiProcessed": False, "isFeatured": False}}
+        )
+    except Exception as e:
+        logger.error(f"[Startup] Status migration failed: {e}")
+
+    _next_run_time = _compute_next_run()
+
+    # Start APScheduler
+    try:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        scheduler = AsyncIOScheduler(timezone="UTC")
+        scheduler.add_job(_scheduled_scrape, 'cron', hour=6, minute=0)
+        scheduler.add_job(_audit_missing_summaries, 'interval', minutes=30)
+        scheduler.start()
+        logger.info("[Startup] Scheduler started — daily scrape at 06:00 UTC, audit every 30 min")
+    except Exception as e:
+        logger.error(f"[Startup] Scheduler failed to start: {e}")
+
+    # Run audit 10 seconds after boot
+    async def _delayed_audit():
+        await asyncio.sleep(10)
+        await _audit_missing_summaries()
+    asyncio.create_task(_delayed_audit())
 
 @app.on_event("shutdown")
-async def shutdown_db_client():
+async def shutdown():
     client.close()
