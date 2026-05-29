@@ -118,6 +118,9 @@ def normalize_category(cat: Optional[str]) -> str:
 _scraper_running = False
 _last_run_id: Optional[str] = None
 
+# Max NEW articles ingested per scraper run (keeps Groq usage under control)
+DAILY_ARTICLE_CAP = 10
+
 def _url_hash(url: str) -> str:
     return hashlib.sha256(url.encode()).hexdigest()[:16]
 
@@ -275,11 +278,16 @@ async def run_scraper_pipeline() -> str:
         logger.info(f"[Scraper] Starting run {run_id} — {len(sources)} sources")
 
         for src in sources:
+            if articles_new >= DAILY_ARTICLE_CAP:
+                logger.info(f"[Scraper] Daily cap of {DAILY_ARTICLE_CAP} reached — stopping")
+                break
             try:
                 items = await _fetch_rss(src)
                 articles_found += len(items)
 
                 for item in items[:src.get("quota", 5)]:
+                    if articles_new >= DAILY_ARTICLE_CAP:
+                        break
                     title   = item["title"]
                     excerpt = item.get("excerpt") or ""
 
@@ -393,27 +401,38 @@ RADIO: V-Rock returns. "Love Is a Long Road" (Tom Petty), "Hot Together" (Pointe
 == END WORLD KNOWLEDGE ==
 """
 
-JOURNALIST_SYSTEM = f"""You are a senior investigative journalist for The Leonida Vice — an underground intelligence publication tracking GTA VI.
+JOURNALIST_SYSTEM = f"""You are the editor-in-chief of The Leonida Vice — an underground intelligence publication covering GTA VI with the authority of Rolling Stone, the precision of Reuters, and the attitude of Vice Media.
 
 {LEONIDA_WORLD_KNOWLEDGE}
 
-RULES:
-- Only report facts from the source content. Never invent, infer, or fabricate.
-- Terse, punchy, noir-adjacent writing. Present tense. Short sentences.
-- Keep summaries to 2-3 sentences (60-120 words).
-- Do NOT start with "The article" or restate the headline.
-- After summary, add: CONFIDENCE: high|medium|low
-- Then: TAGS: tag1, tag2, tag3"""
+Your job: write a DECK/SUMMARY that would appear under a headline in print — sharp, substantive, and worth reading on its own.
 
-FULL_ARTICLE_SYSTEM = f"""You are a senior investigative journalist for The Leonida Vice.
+RULES:
+- Only report facts present in the source. Never invent quotes, statistics, or events.
+- Voice: authoritative, cinematic, slightly conspiratorial. Write like you've seen the build.
+- Length: 3-5 sentences. 80-160 words. Enough to give real context, not just tease.
+- Do NOT open with "The article", "According to", or a restatement of the headline.
+- DO contextualise within the wider GTA VI picture where the source permits it.
+- After the summary, on a new line: CONFIDENCE: high|medium|low
+- Then on a new line: TAGS: tag1, tag2, tag3, tag4"""
+
+FULL_ARTICLE_SYSTEM = f"""You are a senior staff writer for The Leonida Vice — think Jason Schreier's precision crossed with Tom Bissell's long-form voice.
 
 {LEONIDA_WORLD_KNOWLEDGE}
 
+Write a FULL EDITORIAL ARTICLE in 4 structured paragraphs:
+
+1. LEDE — One punchy sentence that captures the story's full weight. No throat-clearing.
+2. CORE FACTS — All the verified information from the source, written as crisp present-tense reporting. Include names, figures, dates, and direct quotes if present in the source.
+3. SIGNIFICANCE — Why this matters specifically to GTA VI's development, release trajectory, or the fan community. Connect dots from the world knowledge above where relevant.
+4. LEONIDA TAKE — The editorial voice. What does The Leonida Vice make of this? What questions remain? What should the reader watch for next?
+
 RULES:
-- Only report facts from source. Never fabricate.
-- Write 3 paragraphs: (1) Core facts (2) Why it matters for GTA VI fans (3) Context + Leonida Vice take.
-- 180-280 words. No headers. No bullets. Prose only. Present tense.
-- Do NOT start with "The article" or restate the headline."""
+- 350-550 words total. Substantial. Journalistic. No padding.
+- Prose only — no headers, bullets, or markdown within the article.
+- Present tense throughout.
+- Never fabricate details not in the source.
+- Do not restate the headline as the opening sentence."""
 
 async def _groq_chat(messages: list, max_tokens: int = 300, model: str = "llama-3.3-70b-versatile") -> Optional[str]:
     """Call Groq API. Returns content string or None on failure."""
@@ -468,12 +487,12 @@ async def ai_summarize(article: dict, groq_key: Optional[str] = None) -> dict:
     try:
         user_prompt = (
             f'Category: {category}\nSource: {src_name}\nHeadline: "{title}"\n'
-            f'Raw content: "{source_text[:600]}"\n\n'
-            f'Write a 2-3 sentence Leonida Vice intel briefing. Then TAGS: tag1, tag2, tag3.'
+            f'Raw content: "{source_text[:1200]}"\n\n'
+            f'Write the editorial deck/summary for this story. Then CONFIDENCE and TAGS lines.'
         )
         raw = await _groq_chat(
             [{"role": "system", "content": JOURNALIST_SYSTEM}, {"role": "user", "content": user_prompt}],
-            max_tokens=250,
+            max_tokens=400,
         )
         if raw:
             conf_m = re.search(r'CONFIDENCE:\s*(high|medium|low)', raw, re.I)
@@ -481,18 +500,19 @@ async def ai_summarize(article: dict, groq_key: Optional[str] = None) -> dict:
             summary = re.sub(r'CONFIDENCE:\s*(high|medium|low).*', '', raw, flags=re.I|re.S)
             summary = re.sub(r'TAGS:.+$', '', summary, flags=re.I|re.M).strip()
             confidence = conf_m.group(1).lower() if conf_m else "medium"
-            tags = [t.strip() for t in tags_m.group(1).split(",")][:5] if tags_m else []
-            score = {"high": 85, "medium": 60, "low": 35}.get(confidence, 60)
+            tags = [t.strip() for t in tags_m.group(1).split(",")][:6] if tags_m else []
+            score = {"high": 90, "medium": 65, "low": 35}.get(confidence, 65)
             result.update({"aiSummary": summary if len(summary) > 20 else None, "aiTags": tags, "newsValueScore": score})
 
-        # Full article content
+        # Full article content — 4-paragraph long-form
         full_prompt = (
             f'Category: {category}\nSource: {src_name}\nHeadline: "{title}"\n'
-            f'Raw content: "{source_text[:800]}"\n\nWrite a 3-paragraph Leonida Vice intel report. 180-280 words.'
+            f'Raw content: "{source_text[:2000]}"\n\n'
+            f'Write the full editorial article. 4 paragraphs, 350-550 words. Lede → Core Facts → Significance → Leonida Take.'
         )
         full = await _groq_chat(
             [{"role": "system", "content": FULL_ARTICLE_SYSTEM}, {"role": "user", "content": full_prompt}],
-            max_tokens=400,
+            max_tokens=750,
         )
         if full and len(full.strip()) > 80:
             result["aiContent"] = full.strip()
