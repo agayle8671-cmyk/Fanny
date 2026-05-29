@@ -67,23 +67,22 @@ export default function EditorialDesk() {
   }, []);
 
   // Fetch articles from MongoDB
-  const fetchFeed = async () => {
-    if (!isAuthorized) return;
-    setFeedLoading(true);
-    try {
-      const res = await api.listArticles({ limit: 50 });
-      if (res && res.items) {
-        setArticles(res.items);
-      }
-    } catch (e) {
-      showStatus("error", `Failed to load feed: ${e.message}`);
-    } finally {
-      setFeedLoading(false);
-    }
-  };
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
+    const fetchFeed = async () => {
+      if (!isAuthorized) return;
+      setFeedLoading(true);
+      try {
+        const res = await api.listArticles({ limit: 50 });
+        if (res && res.items) {
+          setArticles(res.items);
+        }
+      } catch (e) {
+        showStatus("error", `Failed to load feed: ${e.message}`);
+      } finally {
+        setFeedLoading(false);
+      }
+    };
+
     if (isAuthorized) {
       fetchFeed();
     }
