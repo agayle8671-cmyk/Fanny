@@ -89,13 +89,6 @@ function normalizeArticle(a) {
     text: rawParagraphs[2]
   });
 
-  // Image 2: Secondary image from a different thematic pool — guaranteed unique from Image 1
-  bodyBlocks.push({
-    type: "image",
-    src: getSecondaryFallback(a.id, a.category, a.aiTags || []),
-    caption: `Leonida Vice visual archive — ${a.category || 'Intel'} bureau, state of Leonida.`
-  });
-
   // 5. Place any remaining paragraphs at the end
   for (let i = 3; i < rawParagraphs.length; i++) {
     bodyBlocks.push({
