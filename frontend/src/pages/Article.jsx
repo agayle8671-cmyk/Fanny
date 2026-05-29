@@ -6,6 +6,7 @@ import { api } from "../lib/api";
 import { ReadingProgress } from "../components/ReadingProgress";
 import { ShareWidget } from "../components/ShareWidget";
 import { ArticleTOC, slugify } from "../components/ArticleTOC";
+import { getFallbackImage, getSecondaryFallback } from "../lib/fallback-image";
 
 // Loading skeleton for dynamic articles
 const ArticleSkeleton = () => (
@@ -23,6 +24,61 @@ const ArticleSkeleton = () => (
 
 function normalizeArticle(a) {
   if (!a) return null;
+
+  // Split AI report content into paragraphs
+  const rawParagraphs = (a.aiContent || a.content || "")
+    .split(/\n+/)
+    .map(p => p.trim())
+    .filter(p => p.length > 20);
+
+  // Guarantee minimum of 3 paragraphs
+  while (rawParagraphs.length < 3) {
+    rawParagraphs.push("Leonida Vice intelligence units are actively tracking additional signals and verifying field intelligence for this report. Further telemetry briefings will be logged as details surface.");
+  }
+
+  // Construct structured layout blocks (3 paragraphs + 2 images)
+  const bodyBlocks = [];
+  
+  // 1. Lead paragraph
+  bodyBlocks.push({
+    type: "lead",
+    text: a.aiSummary || a.excerpt || "Intel report pending."
+  });
+
+  // 2. First paragraph
+  bodyBlocks.push({
+    type: "p",
+    text: rawParagraphs[0]
+  });
+
+  // 3. First Image Block (Primary Hero/Thumbnail image)
+  bodyBlocks.push({
+    type: "image",
+    src: a.heroImage || a.imageThumbnail || getFallbackImage(a.category, a.id),
+    caption: `Scraper intel: Verified capture matching ${a.category || 'Leonida'} tracking logs.`
+  });
+
+  // 4. Second paragraph
+  bodyBlocks.push({
+    type: "p",
+    text: rawParagraphs[1]
+  });
+
+  // 5. Second Image Block (Secondary cinematic shot!)
+  bodyBlocks.push({
+    type: "image",
+    src: getSecondaryFallback(a.id),
+    caption: "Cinematic broadcast slice capturing the state of Leonida."
+  });
+
+  // 6. Third paragraph & any remaining ones
+  for (let i = 2; i < rawParagraphs.length; i++) {
+    bodyBlocks.push({
+      type: "p",
+      text: rawParagraphs[i]
+    });
+  }
+
   return {
     ...a,
     heroImage:  a.heroImage || a.imageThumbnail || a.videoThumbnail || null,
@@ -32,6 +88,7 @@ function normalizeArticle(a) {
     readTime:   a.readTime || "2 min read",
     category:   a.category || "Intel",
     slug:       a.slug || "",
+    body:       a.body && a.body.length > 0 ? a.body : bodyBlocks
   };
 }
 
@@ -141,13 +198,7 @@ const Article = () => {
       {/* BODY — narrow editorial column with full-bleed image escapes */}
       <section className="relative pt-20 pb-10">
         <div className="article-prose max-w-3xl mx-auto px-6 md:px-0">
-          {(article.body && article.body.length > 0
-            ? article.body
-            : [
-                { type: "lead", text: article.aiSummary || article.excerpt || "Intel report pending." },
-                { type: "p", text: article.aiContent || article.content || "" }
-              ].filter(b => b.text)
-          ).map((block, i) => {
+          {(article.body || []).map((block, i) => {
             if (block.type === "lead") {
               return (
                 <p
