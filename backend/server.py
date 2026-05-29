@@ -912,6 +912,114 @@ async def _run_audit_repair(articles: list):
         except Exception as e:
             logger.warning(f"[Repair] Failed {art.get('id')}: {e}")
 
+# ── Published articles list (for PublishedPanel) ──────────────────────────────
+@api_router.get("/editorial/published")
+async def editorial_published(
+    search: Optional[str] = None,
+    category: Optional[str] = None,
+    limit: int = Query(30, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    _: bool = Depends(require_editorial_key),
+):
+    query: Dict[str, Any] = {"status": "published"}
+    if category and category != "all":
+        query["category"] = category
+    if search:
+        query["title"] = {"$regex": search, "$options": "i"}
+    cursor = db.scraped_articles.find(query, {"_id": 0}).sort("approvedAt", -1).skip(offset).limit(limit)
+    articles = await cursor.to_list(length=limit)
+    total = await db.scraped_articles.count_documents(query)
+    return {"articles": articles, "total": total, "limit": limit, "offset": offset}
+
+# ── Breaking ticker ────────────────────────────────────────────────────────────
+@api_router.get("/editorial/ticker")
+async def get_ticker(_: bool = Depends(require_editorial_key)):
+    doc = await db.site_settings.find_one({"key": "ticker"}, {"_id": 0})
+    return {"items": doc.get("items", []) if doc else []}
+
+@api_router.put("/editorial/ticker")
+async def set_ticker(body: dict, _: bool = Depends(require_editorial_key)):
+    items = body.get("items", [])
+    await db.site_settings.update_one(
+        {"key": "ticker"},
+        {"$set": {"key": "ticker", "items": items, "updatedAt": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return {"success": True, "items": items}
+
+# ── Timeline analytics ─────────────────────────────────────────────────────────
+@api_router.get("/editorial/timeline")
+async def editorial_timeline(_: bool = Depends(require_editorial_key)):
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    pipeline_pub = [
+        {"$match": {"status": "published", "approvedAt": {"$gte": cutoff}}},
+        {"$group": {"_id": {"$substr": ["$approvedAt", 0, 10]}, "published": {"$sum": 1}}},
+        {"$sort": {"_id": 1}},
+    ]
+    pipeline_rej = [
+        {"$match": {"status": "rejected", "rejectionReason": {"$exists": True, "$ne": None}}},
+        {"$group": {"_id": "$rejectionReason", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+    ]
+    pub_rows = await db.scraped_articles.aggregate(pipeline_pub).to_list(14)
+    rej_rows = await db.scraped_articles.aggregate(pipeline_rej).to_list(20)
+    # Build 7-day timeline filling gaps
+    from datetime import date as _date
+    day_map = {r["_id"]: r["published"] for r in pub_rows}
+    today = datetime.now(timezone.utc).date()
+    timeline = []
+    for i in range(6, -1, -1):
+        d = (today - timedelta(days=i)).isoformat()
+        timeline.append({"day": d, "published": day_map.get(d, 0), "rejected": 0})
+    reason_breakdown = [{"rejection_reason": r["_id"], "count": r["count"]} for r in rej_rows]
+    return {"timeline": timeline, "reasonBreakdown": reason_breakdown}
+
+# ── Manual article entry ───────────────────────────────────────────────────────
+@api_router.post("/editorial/manual-article")
+async def manual_article(body: dict, _: bool = Depends(require_editorial_key)):
+    title = (body.get("title") or "").strip()
+    source_url = (body.get("sourceUrl") or "").strip()
+    source_name = (body.get("sourceName") or "").strip()
+    if not title or not source_url or not source_name:
+        raise HTTPException(status_code=400, detail="title, sourceUrl, and sourceName are required")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    url_hash = _url_hash(source_url)
+    slug = re.sub(r'[^a-z0-9]+', '-', title.lower())[:80].strip('-') + "-" + url_hash[:6]
+    thumb = body.get("imageThumbnail") or None
+    doc = {
+        "id":             str(uuid.uuid4()),
+        "slug":           slug,
+        "title":          title,
+        "excerpt":        body.get("excerpt") or None,
+        "aiSummary":      body.get("aiSummary") or None,
+        "aiContent":      None,
+        "aiTags":         [],
+        "category":       normalize_category(body.get("category")),
+        "sourceName":     source_name,
+        "sourceUrl":      source_url,
+        "urlHash":        url_hash,
+        "imageThumbnail": thumb,
+        "heroImage":      thumb,
+        "videoUrl":       None,
+        "videoThumbnail": None,
+        "isVideo":        False,
+        "newsValueScore": 60,
+        "status":         "published",
+        "aiProcessed":    bool(body.get("aiSummary")),
+        "isFeatured":     False,
+        "publishedAt":    now_iso,
+        "scrapedAt":      now_iso,
+        "approvedAt":     now_iso,
+        "rejectionReason":None,
+        "body":           [],
+        "author":         body.get("author") or "Leonida Vice",
+        "date":           now_iso[:10],
+        "readTime":       "2 min read",
+        "tags":           [],
+    }
+    await db.scraped_articles.update_one({"slug": slug}, {"$set": doc}, upsert=True)
+    return {"success": True, "slug": slug, "title": title}
+
 # ── Sources management ────────────────────────────────────────────────────────
 @api_router.get("/editorial/sources")
 async def list_sources(_: bool = Depends(require_editorial_key)):
