@@ -1,19 +1,19 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { ExternalLink, Flame } from "lucide-react";
 import { api, timeAgo, fallbackThumb } from "../lib/api";
 import { HorizontalRail } from "./HorizontalRail";
 
 const NewswireCard = ({ item, index }) => {
   const thumb = item.imageThumbnail || item.videoThumbnail || fallbackThumb(index);
-  const isExternal = !!item.url || !!item.sourceUrl;
-  const linkUrl = item.url || item.sourceUrl || "#";
+  const externalUrl = item.url || item.sourceUrl || null;
   const isHot = (item.newsValueScore || 0) >= 70;
+  // If the article has a slug, link internally; otherwise fall back to external
+  const internalLink = item.slug ? `/news/${item.slug}` : null;
 
   return (
-    <a
-      href={linkUrl}
-      target="_blank"
-      rel="noopener noreferrer"
+    <Link
+      to={internalLink || "/news"}
       data-testid={`newswire-card-${item.slug}`}
       className="group relative flex-none snap-start w-[300px] md:w-[360px] aspect-[16/10] overflow-hidden rounded-lg border border-white/5 bg-zinc-900 transition-all duration-300 hover:scale-[1.03] hover:z-10 hover:shadow-2xl hover:shadow-cyan-500/20 hover:border-white/20"
     >
@@ -53,19 +53,25 @@ const NewswireCard = ({ item, index }) => {
         </div>
         <div className="mt-3 flex items-center gap-3 text-[10px] uppercase tracking-[0.22em] text-zinc-400">
           <span>{timeAgo(item.publishedAt || item.scrapedAt)}</span>
-          {isExternal && (
+          {externalUrl && (
             <>
               <span className="h-1 w-1 rounded-full bg-zinc-600" />
-              <span className="inline-flex items-center gap-1">
+              <a
+                href={externalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 hover:text-white transition-colors"
+              >
                 Source <ExternalLink size={10} />
-              </span>
+              </a>
             </>
           )}
         </div>
       </div>
 
       <span className="absolute bottom-0 left-0 h-px w-0 bg-[#05D9E8] group-hover:w-full transition-all duration-500" />
-    </a>
+    </Link>
   );
 };
 
@@ -99,10 +105,10 @@ export const NewswireRail = () => {
               </p>
             </div>
             <a
-              href="/intel"
+              href="/news"
               className="text-xs uppercase tracking-[0.25em] text-[#05D9E8] hover:text-white"
             >
-              Open the wire →
+              Open the news →
             </a>
           </div>
           <div className="rounded-xl border border-white/5 bg-white/[0.02] p-8 text-center">

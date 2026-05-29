@@ -3,7 +3,7 @@ import { Play, X } from "lucide-react";
 import { trailers } from "../data/trailers";
 import { ScrollReveal } from "../components/ScrollReveal";
 
-const Trailers = () => {
+const Media = () => {
   const [active, setActive] = useState(null);
 
   useEffect(() => {
@@ -18,8 +18,9 @@ const Trailers = () => {
       document.body.style.overflow = "";
     };
   }, [active]);
+
   return (
-    <div data-testid="trailers-page" className="bg-[#050505] text-white pt-32">
+    <div data-testid="media-page" className="bg-[#050505] text-white pt-32">
       <div className="max-w-[1400px] mx-auto px-6 md:px-12">
         <ScrollReveal direction="up" duration={0.9}>
           <header className="mb-12 max-w-3xl">
@@ -27,19 +28,18 @@ const Trailers = () => {
               The Media Vault
             </p>
             <h1 className="font-display uppercase text-6xl md:text-8xl leading-[0.9] text-white">
-              Trailers
+              Media
             </h1>
             <p className="mt-6 font-editorial italic text-xl text-zinc-300 max-w-2xl">
-              Official Rockstar trailers and environment supercuts. Click to play
-              in-page.
+              Official Rockstar trailers, high-fidelity environment supercuts, and gameplay video releases.
             </p>
           </header>
         </ScrollReveal>
 
-        {/* Featured */}
+        {/* Featured Video */}
         <ScrollReveal direction="up" delay={0.1} duration={0.95}>
           <div
-            data-testid="featured-trailer"
+            data-testid="featured-video"
             className="relative aspect-video rounded-xl overflow-hidden border border-white/10 mb-16 group cursor-pointer"
             onClick={() => setActive(trailers[0])}
           >
@@ -65,12 +65,12 @@ const Trailers = () => {
           </div>
         </ScrollReveal>
 
-        {/* Grid */}
+        {/* Video Grid */}
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 pb-24">
           {trailers.map((t, i) => (
             <ScrollReveal key={t.slug} direction="up" delay={i * 0.08} duration={0.75}>
               <button
-                data-testid={`trailer-card-${t.slug}`}
+                data-testid={`video-card-${t.slug}`}
                 onClick={() => setActive(t)}
                 className="group text-left block w-full"
               >
@@ -105,15 +105,15 @@ const Trailers = () => {
         </div>
       </div>
 
-      {/* Modal */}
+      {/* Video Modal */}
       {active && (
         <div
-          data-testid="trailer-modal"
+          data-testid="video-modal"
           className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-4"
           onClick={() => setActive(null)}
         >
           <button
-            data-testid="trailer-modal-close"
+            data-testid="video-modal-close"
             className="absolute top-6 right-6 h-12 w-12 rounded-full bg-white/10 hover:bg-white/20 grid place-items-center text-white"
             onClick={() => setActive(null)}
             aria-label="Close"
@@ -139,4 +139,4 @@ const Trailers = () => {
   );
 };
 
-export default Trailers;
+export default Media;

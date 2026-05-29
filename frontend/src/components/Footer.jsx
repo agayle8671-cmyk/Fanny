@@ -80,7 +80,6 @@ export const Footer = () => {
           </p>
           <ul className="space-y-3 text-sm">
             <li><Link to="/news" className="text-zinc-300 hover:text-white">News</Link></li>
-            <li><Link to="/intel" className="text-zinc-300 hover:text-white">Live Intel</Link></li>
             <li><Link to="/characters" className="text-zinc-300 hover:text-white">Characters</Link></li>
             <li><Link to="/locations" className="text-zinc-300 hover:text-white">Locations</Link></li>
             <li><Link to="/vehicles" className="text-zinc-300 hover:text-white">Vehicles</Link></li>
@@ -93,7 +92,7 @@ export const Footer = () => {
           </p>
           <ul className="space-y-3 text-sm">
             <li><Link to="/markets" className="text-zinc-300 hover:text-white">Markets</Link></li>
-            <li><Link to="/trailers" className="text-zinc-300 hover:text-white">Trailers</Link></li>
+            <li><Link to="/media" className="text-zinc-300 hover:text-white">Media</Link></li>
             <li><Link to="/soundtrack" className="text-zinc-300 hover:text-white">Soundtrack</Link></li>
           </ul>
         </div>

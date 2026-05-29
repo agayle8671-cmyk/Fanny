@@ -7,13 +7,12 @@ import { TickerStrip } from "./TickerStrip";
 const navLinks = [
   { to: "/", label: "Home", testid: "nav-home-link" },
   { to: "/news", label: "News", testid: "nav-news-link" },
-  { to: "/intel", label: "Intel", testid: "nav-intel-link" },
   { to: "/characters", label: "Characters", testid: "nav-characters-link" },
   { to: "/locations", label: "Locations", testid: "nav-locations-link" },
   { to: "/vehicles", label: "Vehicles", testid: "nav-vehicles-link" },
   { to: "/arsenal", label: "Arsenal", testid: "nav-arsenal-link" },
   { to: "/markets", label: "Markets", testid: "nav-markets-link" },
-  { to: "/trailers", label: "Trailers", testid: "nav-trailers-link" },
+  { to: "/media", label: "Media", testid: "nav-media-link" },
   { to: "/soundtrack", label: "Soundtrack", testid: "nav-soundtrack-link" },
 ];
 

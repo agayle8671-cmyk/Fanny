@@ -11,6 +11,27 @@ async function get(path) {
   }
 }
 
+async function request(path, options = {}) {
+  const res = await fetch(`${BASE}/api${path}`, {
+    ...options,
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    let detail = `HTTP ${res.status}`;
+    try {
+      const parsed = JSON.parse(errText);
+      detail = parsed.detail || parsed.message || detail;
+    } catch (_) {}
+    throw new Error(detail);
+  }
+  return await res.json();
+}
+
 export const api = {
   listArticles: ({ category, limit = 12, offset = 0 } = {}) => {
     const params = new URLSearchParams({ limit, offset });
@@ -19,6 +40,26 @@ export const api = {
   },
   trending: (limit = 10) => get(`/articles/trending?limit=${limit}`),
   article: (slug) => get(`/articles/${slug}`),
+  deleteArticle: (slug, token) =>
+    request(`/articles/${slug}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    }),
+  parseArticle: (rawText, token, groqKey, model = "llama3-70b-8192") =>
+    request(`/editorial/parse`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-Groq-Api-Key": groqKey,
+      },
+      body: JSON.stringify({ rawText, model }),
+    }),
+  ingestArticles: (articles, token) =>
+    request(`/articles/ingest`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ articles: Array.isArray(articles) ? articles : [articles] }),
+    }),
 };
 
 // Helpers

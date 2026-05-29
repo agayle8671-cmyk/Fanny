@@ -78,7 +78,7 @@ const Home = () => {
             </div>
             <div className="flex flex-wrap gap-4 pt-2 animate-fade-up delay-700">
               <Link
-                to="/trailers"
+                to="/media"
                 data-testid="home-hero-watch-trailer-btn"
                 className="inline-flex items-center gap-3 px-7 py-4 bg-[#FF2A6D] text-white font-semibold tracking-[0.25em] text-xs uppercase rounded-sm hover:bg-[#FF7B00] transition-colors duration-300"
               >

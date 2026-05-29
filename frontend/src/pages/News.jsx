@@ -1,9 +1,46 @@
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { articles } from "../data/articles";
 import { ScrollReveal } from "../components/ScrollReveal";
+import { api } from "../lib/api";
 
 const News = () => {
-  const [hero, ...rest] = articles;
+  const [allArticles, setAllArticles] = useState(articles);
+
+  useEffect(() => {
+    let alive = true;
+    api.listArticles({ limit: 50 }).then((res) => {
+      if (!alive || !res?.items) return;
+      
+      // Filter only articles with body blocks (published articles)
+      const publishedDb = res.items.filter(item => item.body && item.body.length > 0);
+      
+      const merged = [...articles];
+      publishedDb.forEach(art => {
+        if (!merged.some(a => a.slug === art.slug)) {
+          merged.push(art);
+        }
+      });
+      
+      const parseDate = (item) => {
+        const dStr = item.publishedAt || item.date || item.scrapedAt;
+        if (!dStr) return 0;
+        const parsed = Date.parse(dStr);
+        return isNaN(parsed) ? 0 : parsed;
+      };
+      
+      merged.sort((a, b) => parseDate(b) - parseDate(a));
+      setAllArticles(merged);
+    }).catch((e) => {
+      console.error("Failed to fetch dynamic articles:", e);
+    });
+    
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const [hero, ...rest] = allArticles;
   return (
     <div data-testid="news-page" className="bg-[#050505] text-white pt-32">
       <div className="max-w-[1400px] mx-auto px-6 md:px-12">

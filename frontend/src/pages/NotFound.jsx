@@ -48,11 +48,11 @@ const NotFound = () => {
                 <ArrowLeft size={16} /> Back to Leonida
               </Link>
               <Link
-                to="/intel"
-                data-testid="not-found-intel-link"
+                to="/news"
+                data-testid="not-found-news-link"
                 className="inline-flex items-center gap-3 px-7 py-4 border border-white/30 text-white font-semibold tracking-[0.25em] text-xs uppercase rounded-sm hover:bg-white hover:text-black transition-colors duration-300"
               >
-                Open the Wire
+                Open the Newsroom
               </Link>
             </div>
           </div>
@@ -80,10 +80,6 @@ const NotFound = () => {
                 If you got here from a saved link, the article may have moved. Try the{" "}
                 <Link to="/news" className="text-white underline underline-offset-4">
                   Newsroom
-                </Link>{" "}
-                or the{" "}
-                <Link to="/intel" className="text-white underline underline-offset-4">
-                  Newswire
                 </Link>
                 .
               </p>

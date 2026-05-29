@@ -1,15 +1,49 @@
+import { useState, useEffect } from "react";
 import { useParams, Link, Navigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Clock } from "lucide-react";
 import { getArticle, articles } from "../data/articles";
+import { api } from "../lib/api";
 import { ReadingProgress } from "../components/ReadingProgress";
 import { ShareWidget } from "../components/ShareWidget";
 import { ArticleTOC, slugify } from "../components/ArticleTOC";
 
+// Loading skeleton for dynamic articles
+const ArticleSkeleton = () => (
+  <div className="bg-[#050505] text-white animate-pulse">
+    <div className="relative w-full h-[92vh] min-h-[640px] bg-zinc-900" />
+    <div className="max-w-3xl mx-auto px-6 md:px-0 pt-20 space-y-8">
+      <div className="h-6 w-32 bg-zinc-800 rounded" />
+      <div className="h-12 w-3/4 bg-zinc-800 rounded" />
+      <div className="h-4 bg-zinc-800 rounded" />
+      <div className="h-4 bg-zinc-800 rounded" />
+      <div className="h-4 w-2/3 bg-zinc-800 rounded" />
+    </div>
+  </div>
+);
+
 const Article = () => {
   const { slug } = useParams();
-  const article = getArticle(slug);
+  const staticArticle = getArticle(slug);
 
-  if (!article) return <Navigate to="/news" replace />;
+  const [article, setArticle] = useState(staticArticle || null);
+  const [loading, setLoading] = useState(!staticArticle);
+  const [notFound, setNotFound] = useState(false);
+
+  useEffect(() => {
+    if (staticArticle) return; // already resolved from static data
+    setLoading(true);
+    api.article(slug).then((data) => {
+      if (!data) {
+        setNotFound(true);
+      } else {
+        setArticle(data);
+      }
+      setLoading(false);
+    });
+  }, [slug, staticArticle]);
+
+  if (loading) return <ArticleSkeleton />;
+  if (notFound || (!loading && !article)) return <Navigate to="/news" replace />;
 
   const idx = articles.findIndex((a) => a.slug === article.slug);
   const prev = idx > 0 ? articles[idx - 1] : null;
@@ -155,6 +189,11 @@ const Article = () => {
             if (block.type === "image") {
               return (
                 <figure key={i} className="my-16 full-bleed">
+                  {block.caption && (
+                    <figcaption className="max-w-3xl mx-auto px-6 md:px-0 mb-5 text-xs uppercase tracking-[0.25em] text-zinc-400 border-l-2 border-[#FF2A6D] pl-3">
+                      {block.caption}
+                    </figcaption>
+                  )}
                   <div className="relative h-[60vh] md:h-[80vh] min-h-[420px] max-h-[860px] overflow-hidden">
                     <img
                       src={block.src}
@@ -165,13 +204,6 @@ const Article = () => {
                     {/* Subtle vignette so the image holds focus */}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-black/15 pointer-events-none" />
                   </div>
-                  {block.caption && (
-                    <figcaption className="max-w-3xl mx-auto px-6 mt-5 text-xs uppercase tracking-[0.25em] text-zinc-500 text-center">
-                      <span className="inline-block border-l-2 border-[#FF2A6D] pl-3">
-                        {block.caption}
-                      </span>
-                    </figcaption>
-                  )}
                 </figure>
               );
             }

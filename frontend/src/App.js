@@ -15,9 +15,9 @@ import LocationDetail from "./pages/LocationDetail";
 import Vehicles from "./pages/Vehicles";
 import Arsenal from "./pages/Arsenal";
 import Markets from "./pages/Markets";
-import Intel from "./pages/Intel";
-import Trailers from "./pages/Trailers";
+import Media from "./pages/Media";
 import Soundtrack from "./pages/Soundtrack";
+import EditorialDesk from "./pages/EditorialDesk";
 import NotFound from "./pages/NotFound";
 
 const ScrollToTop = () => {
@@ -48,9 +48,9 @@ function App() {
               <Route path="/vehicles" element={<Vehicles />} />
               <Route path="/arsenal" element={<Arsenal />} />
               <Route path="/markets" element={<Markets />} />
-              <Route path="/intel" element={<Intel />} />
-              <Route path="/trailers" element={<Trailers />} />
+              <Route path="/media" element={<Media />} />
               <Route path="/soundtrack" element={<Soundtrack />} />
+              <Route path="/editorial-desk" element={<EditorialDesk />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </PageTransition>

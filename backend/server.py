@@ -43,10 +43,12 @@ class StatusCheckCreate(BaseModel):
     client_name: str
 
 
+import json
+
 # ── Scraped article models (match the scraper's article schema) ──
 class ScrapedArticle(BaseModel):
     """Schema mirrors the api-server / scraper output."""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     slug: str
@@ -64,6 +66,14 @@ class ScrapedArticle(BaseModel):
     commentsCount: int = 0
     publishedAt: Optional[str] = None  # ISO string
     scrapedAt: Optional[str] = None    # ISO string
+    
+    # Rich editorial fields added for the Editorial Desk CMS
+    author: Optional[str] = None
+    date: Optional[str] = None
+    readTime: Optional[str] = None
+    heroImage: Optional[str] = None
+    tags: Optional[List[str]] = None
+    body: Optional[List[dict]] = None
 
 
 class IngestPayload(BaseModel):
@@ -162,6 +172,81 @@ async def get_article(slug: str):
     if not doc:
         raise HTTPException(status_code=404, detail="Article not found")
     return doc
+
+
+@api_router.delete("/articles/{slug}")
+async def delete_article(slug: str, _: bool = Depends(require_ingest_token)):
+    """Delete an ingested article from MongoDB."""
+    res = await db.scraped_articles.delete_one({"slug": slug})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Article not found")
+    return {"message": "Article deleted successfully"}
+
+
+@api_router.post("/editorial/parse")
+async def parse_article(
+    payload: dict,
+    _: bool = Depends(require_ingest_token),
+    x_groq_api_key: Optional[str] = Header(None)
+):
+    """Proxy the raw text to Groq AI to parse it into structured editorial blocks."""
+    if not x_groq_api_key:
+        raise HTTPException(status_code=400, detail="Missing Groq API Key header (X-Groq-Api-Key)")
+    
+    raw_text = payload.get("rawText", "")
+    if not raw_text:
+        raise HTTPException(status_code=400, detail="Missing rawText in payload")
+        
+    model = payload.get("model", "llama3-70b-8192")
+    
+    headers = {
+        "Authorization": f"Bearer {x_groq_api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    system_prompt = (
+        "You are a premium editorial parsing agent for 'Leonida Vice', a high-end Grand Theft Auto VI news and database network. "
+        "Your task is to take any raw scraped article or newsletter text and transform it into a highly polished, structural JSON payload that matches our premium design requirements.\n\n"
+        "Follow these strict layout and content rules:\n"
+        "1. **Structure:** Your output must match the ScrapedArticle JSON format.\n"
+        "2. **Category:** Must fit one of the following filters: 'Leaks', 'Tech', 'Story', 'Trailers', 'World', 'Markets'.\n"
+        "3. **Hero Image:** Pick the most striking, cinematic, high-resolution landscape image URL related to the topic.\n"
+        "4. **Editorial Body Blocks:** Translate the article's text into an array of blocks under the 'body' key. The block array must have these types:\n"
+        "   - 'lead': The first paragraph of the article. Must start with a bold, epic opening statement. (The website will render this with a large drop-cap).\n"
+        "   - 'p': Standard narrative paragraphs. Break up text into short, readable paragraphs (3-4 sentences max).\n"
+        "   - 'h2': Section headings. Keep them short, aggressive, and in uppercase (e.g. 'RTGI ON BASE HARDWARE', 'THE 30 FPS CONVERSATION').\n"
+        "   - 'pull': An epic pullquote or short quote from a developer or analyst. Highly stylistic. Keep it punchy.\n"
+        "   - 'image': Exactly one high-quality, full-bleed middle landscape image breaking up the content halfway through the article. Must include a caption in uppercase that serves as an editorial call-out (e.g., 'VICE CITY RENDERED WITH RTGI — THE LIGHTING MODEL THAT FINALLY DOES PASTEL JUSTICE.').\n"
+        "5. **Score:** Assign a 'newsValueScore' between 0 and 100. If the score is 70 or above, it will be flagged as 'HOT' on the live feeds.\n\n"
+        "Output ONLY a raw JSON payload, no conversation, no markdown blocks. Conforming strictly to the schema of ScrapedArticle."
+    )
+    
+    groq_payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Parse the following scraped text into structured JSON:\n\n{raw_text}"}
+        ],
+        "temperature": 0.2,
+        "response_format": {"type": "json_object"}
+    }
+    
+    try:
+        import requests
+        res = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            json=groq_payload,
+            headers=headers,
+            timeout=30
+        )
+        if res.status_code != 200:
+            raise HTTPException(status_code=res.status_code, detail=f"Groq API Error: {res.text}")
+        
+        result_json = res.json()
+        message_content = result_json["choices"][0]["message"]["content"]
+        return json.loads(message_content)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse article: {str(e)}")
 
 
 # ── Open Graph countdown image ──
