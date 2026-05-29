@@ -36,7 +36,7 @@ function normalizeArticle(a) {
     rawParagraphs.push("Leonida Vice intelligence units are actively tracking additional signals and verifying field intelligence for this report. Further telemetry briefings will be logged as details surface.");
   }
 
-  // Construct structured layout blocks (3 paragraphs + 2 images)
+  // Construct structured layout blocks (3 paragraphs, 3 sections, pullquote, and 2 unique images)
   const bodyBlocks = [];
   
   // 1. Lead paragraph
@@ -45,34 +45,59 @@ function normalizeArticle(a) {
     text: a.aiSummary || a.excerpt || "Intel report pending."
   });
 
-  // 2. First paragraph
+  // 2. Section 1: Core Briefing
+  bodyBlocks.push({
+    type: "h2",
+    text: "Core Intel Briefing"
+  });
   bodyBlocks.push({
     type: "p",
     text: rawParagraphs[0]
   });
 
-  // 3. First Image Block (Primary Hero/Thumbnail image)
+  // Pull Quote using the AI summary/excerpt
+  const summaryLine = a.aiSummary || a.excerpt || rawParagraphs[0];
   bodyBlocks.push({
-    type: "image",
-    src: a.heroImage || a.imageThumbnail || getFallbackImage(a.category, a.id),
-    caption: `Scraper intel: Verified capture matching ${a.category || 'Leonida'} tracking logs.`
+    type: "pull",
+    text: summaryLine.length > 130 ? summaryLine.slice(0, 130) + "..." : summaryLine
   });
 
-  // 4. Second paragraph
+  // 3. Section 2: Why It Matters
+  bodyBlocks.push({
+    type: "h2",
+    text: "Why It Matters"
+  });
   bodyBlocks.push({
     type: "p",
     text: rawParagraphs[1]
   });
 
-  // 5. Second Image Block (Secondary cinematic shot!)
+  // Image 1: Topic-relevant image derived from aiTags + category (NEVER a copy of the hero)
   bodyBlocks.push({
     type: "image",
-    src: getSecondaryFallback(a.id),
-    caption: "Cinematic broadcast slice capturing the state of Leonida."
+    src: getFallbackImage(a.category, a.id, a.aiTags || []),
+    caption: `Field intelligence: ${(a.aiTags && a.aiTags[0]) ? a.aiTags[0] + ' coverage' : (a.category || 'Leonida') + ' bureau'} — ${new Date(a.publishedAt || a.approvedAt || Date.now()).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}.`
   });
 
-  // 6. Third paragraph & any remaining ones
-  for (let i = 2; i < rawParagraphs.length; i++) {
+  // 4. Section 3: Leonida Take & Context
+  bodyBlocks.push({
+    type: "h2",
+    text: "Leonida Take & Context"
+  });
+  bodyBlocks.push({
+    type: "p",
+    text: rawParagraphs[2]
+  });
+
+  // Image 2: Secondary image from a different thematic pool — guaranteed unique from Image 1
+  bodyBlocks.push({
+    type: "image",
+    src: getSecondaryFallback(a.id, a.category, a.aiTags || []),
+    caption: `Leonida Vice visual archive — ${a.category || 'Intel'} bureau, state of Leonida.`
+  });
+
+  // 5. Place any remaining paragraphs at the end
+  for (let i = 3; i < rawParagraphs.length; i++) {
     bodyBlocks.push({
       type: "p",
       text: rawParagraphs[i]
