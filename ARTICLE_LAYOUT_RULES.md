@@ -5,6 +5,8 @@
 
 ## Image Structure (2 images per article — STRICT)
 
+All images used (header, thumbnail, and body slots) MUST be high-definition (HD) quality to prevent fuzzy or low-resolution rendering. No exceptions.
+
 | Slot | Name | Source | Rule |
 |------|------|--------|------|
 | 1 | **Hero / Header** | `article.heroImage` or `article.imageThumbnail` | Full-bleed behind the title. Never duplicated below. |
@@ -64,3 +66,5 @@
 - ❌ Empty `body` arrays rendering as blank articles
 - ❌ `/newswire` routes — all articles live under `/news/:slug`
 - ❌ More than 1 body image per article
+- ❌ Non-HD or low-resolution/fuzzy images (all assets must be crisp HD)
+

@@ -41,6 +41,8 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
 
   // Inline loading trackers
   const [reprocessingIds, setReprocessingIds] = useState(new Set());
+  const [reAiingEditor, setReAiingEditor] = useState(false);
+  const [reAiPublishingEditor, setReAiPublishingEditor] = useState(false);
 
   // Fetch queue drafts
   const loadQueue = useCallback(async () => {
@@ -170,11 +172,8 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
       return s;
     });
     try {
-      // 1. Reprocess (Run Groq AI summary + title re-writer)
       await apiCall(`/editorial/reprocess/${article.id}`, apiKey, "POST");
-      // 2. Approve (Publish the article)
       await apiCall(`/editorial/approve/${article.id}`, apiKey, "POST");
-      // 3. Reload lists & stats
       loadQueue();
       onStatsChange();
     } catch (_) {}
@@ -183,6 +182,47 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
       s.delete(article.id);
       return s;
     });
+  };
+
+  // Re-AI inside the editor — reprocess + refresh all editor fields
+  const triggerReAiEditor = async (andPublish = false) => {
+    if (!activeDraft) return;
+    andPublish ? setReAiPublishingEditor(true) : setReAiingEditor(true);
+    try {
+      const res = await apiCall(`/editorial/reprocess/${activeDraft.id}`, apiKey, "POST");
+      if (res && res.success) {
+        if (res.title) setEditorTitle(res.title);
+        if (res.aiSummary) setEditorSummary(res.aiSummary);
+        if (res.newsValueScore) setEditorScore(res.newsValueScore);
+        if (res.imageThumbnail) setEditorHeroImage(res.imageThumbnail);
+        if (res.aiContent) {
+          const paras = res.aiContent.split(/\n+/).map(p => p.trim()).filter(p => p.length > 10);
+          if (paras.length > 0) setEditorParagraphs(paras);
+        }
+      }
+      if (andPublish) {
+        await apiCall(`/editorial/approve/${activeDraft.id}`, apiKey, "POST");
+        onStatsChange();
+        closeEditor();
+      }
+    } catch (_) {}
+    andPublish ? setReAiPublishingEditor(false) : setReAiingEditor(false);
+  };
+
+  // Client-side: split a single paragraph at sentence boundary
+  const splitParagraph = (idx) => {
+    const para = editorParagraphs[idx];
+    const sentences = para.match(/[^.!?]+[.!?]+\s*/g) || [para];
+    const mid = Math.ceil(sentences.length / 2);
+    const part1 = sentences.slice(0, mid).join('').trim();
+    const part2 = sentences.slice(mid).join('').trim();
+    if (!part2) return; // can't split
+    setEditorParagraphs(prev => [
+      ...prev.slice(0, idx),
+      part1,
+      part2,
+      ...prev.slice(idx + 1)
+    ]);
   };
 
   const publishActiveDraft = async () => {
@@ -320,15 +360,37 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
               </button>
               <div className="flex gap-2">
                 <button
+                  onClick={() => triggerReAiEditor(false)}
+                  disabled={reAiingEditor || reAiPublishingEditor || saving}
+                  className="flex items-center gap-1.5 px-3 py-2 text-[9px] font-black uppercase tracking-wider rounded-lg border border-[#05d9e8]/20 bg-[#05d9e8]/10 text-[#05d9e8] hover:bg-[#05d9e8]/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {reAiingEditor ? <><RefreshCw size={10} className="animate-spin" /> Re-AI...</> : <>⚡ Re-AI</>}
+                </button>
+                <button
                   onClick={() => saveDraft()}
-                  disabled={saving}
+                  disabled={saving || reAiingEditor || reAiPublishingEditor}
                   className="px-4 py-2 text-xs font-semibold uppercase tracking-wider rounded-lg border border-white/10 hover:border-white/20 bg-white/[0.02] hover:bg-white/[0.05] transition-all"
                 >
                   {saving ? "Saving..." : saveSuccess ? "✓ Saved!" : "Save Draft"}
                 </button>
                 <button
+                  onClick={() => triggerReAiEditor(true)}
+                  disabled={reAiPublishingEditor || reAiingEditor || saving}
+                  className="px-4 py-2 text-[9px] font-black uppercase tracking-wider rounded-lg border transition-all duration-300"
+                  style={{
+                    backgroundColor: "#05d9e8",
+                    borderColor: "#05d9e8",
+                    color: "#000",
+                    boxShadow: "0 8px 24px rgba(5,217,232,0.2)",
+                    opacity: (reAiPublishingEditor || reAiingEditor || saving) ? 0.4 : 1,
+                    cursor: (reAiPublishingEditor || reAiingEditor || saving) ? "not-allowed" : "pointer"
+                  }}
+                >
+                  {reAiPublishingEditor ? <span className="flex items-center gap-1"><RefreshCw size={10} className="animate-spin" /> Publishing...</span> : "⚡ Re-AI & Publish"}
+                </button>
+                <button
                   onClick={publishActiveDraft}
-                  disabled={!canPublish || saving}
+                  disabled={!canPublish || saving || reAiingEditor || reAiPublishingEditor}
                   className="px-6 py-2 text-xs font-bold uppercase tracking-wider rounded-lg text-white border transition-all duration-300"
                   style={{
                     backgroundColor: canPublish ? "#ff2a6d" : "rgba(255,42,109,0.05)",
@@ -453,9 +515,19 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
                       <div key={i} className="relative">
                         <div className="flex justify-between items-center text-[8px] font-bold uppercase tracking-wider text-zinc-500 mb-1">
                           <span>Block {i + 1} {i === 0 ? "(Lead paragraph)" : i === 1 ? "(Core briefing)" : i === 2 ? "(Take & Context)" : ""}</span>
-                          <span style={{ color: tooDense ? "#ff2a6d" : "rgba(255,255,255,0.3)" }}>
-                            {wordsCount} / 150 words {tooDense ? "⚠ Too Dense" : ""}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            {tooDense && (
+                              <button
+                                onClick={() => splitParagraph(i)}
+                                className="flex items-center gap-1 text-[8px] font-black uppercase tracking-wider text-[#ff2a6d] border border-[#ff2a6d]/30 bg-[#ff2a6d]/10 hover:bg-[#ff2a6d]/20 px-2 py-0.5 rounded transition-all"
+                              >
+                                ⚡ Auto-Split
+                              </button>
+                            )}
+                            <span style={{ color: tooDense ? "#ff2a6d" : "rgba(255,255,255,0.3)" }}>
+                              {wordsCount} / 150 words {tooDense ? "⚠ Too Dense" : ""}
+                            </span>
+                          </div>
                         </div>
                         <textarea
                           value={para}
