@@ -257,15 +257,54 @@ async def _fetch_article_images(url: str, existing_thumb: Optional[str] = None) 
     - hero_image: og:image or first large image found
     - body_image: a DIFFERENT image from the same page (unique, not a duplicate of hero)
     Returns (None, None) if suitable images cannot be found.
-    Skips icons, logos, avatars, ads, and tiny images (< 200px heuristic via URL patterns).
+    Skips icons, logos, avatars, ads, and tiny images (< 300px heuristic via URL patterns).
+    Upgrades all quality/dimensions to high-definition (HD) variants.
     """
     import httpx
+    from urllib.parse import urljoin, urlparse
+
     _SKIP_PATTERNS = [
         'logo', 'icon', 'avatar', 'favicon', 'badge', 'sprite', 'pixel',
         'ad', 'banner', 'sponsor', 'tracking', '1x1', 'button', 'thumb_small',
-        'profile', 'author', 'gravatar', 'wp-emoji',
+        'profile', 'author', 'gravatar', 'wp-emoji', 'small', 'thumb', 'mini',
+        'placeholder', 'sidebar', 'widget', 'loader', 'advertisement', 'promo',
+        'footer', 'header_logo', 'nav_logo', 'sharing', 'facebook', 'twitter',
     ]
     _IMG_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.webp', '.gif')
+
+    def _upgrade_to_hd(src: str) -> str:
+        if not src:
+            return src
+        # 1. YouTube thumbnail upgrade: convert any hqdefault/mqdefault/default to maxresdefault
+        if "youtube.com" in src or "youtu.be" in src:
+            src = re.sub(r'/(hqdefault|mqdefault|default)\.jpg', '/maxresdefault.jpg', src)
+        
+        # 2. WordPress / standard resizing suffix removal (e.g., image-150x150.jpg -> image.jpg)
+        src = re.sub(r'-(\d+)x(\d+)(?=\.[a-zA-Z0-9]+$)', '', src)
+        
+        # 3. CDN resizing query upgrades to HD (e.g. ?w=150 -> ?w=1920)
+        src = re.sub(r'([?&])w=\d+', r'\g<1>w=1920', src)
+        src = re.sub(r'([?&])width=\d+', r'\g<1>width=1920', src)
+        src = re.sub(r'([?&])resize=\d+,\d+', r'\g<1>resize=1920,1080', src)
+        src = re.sub(r'([?&])quality=\d+', r'\g<1>quality=95', src)
+        
+        return src
+
+    def _clean_url_for_compare(u: str) -> str:
+        if not u:
+            return ""
+        # Remove resizing parameters, protocols, domains, and trailing slashes to check mathematical identity
+        try:
+            u_upgraded = _upgrade_to_hd(u)
+            parsed = urlparse(u_upgraded)
+            path_part = parsed.path.lower().strip("/")
+            import os
+            basename = os.path.basename(path_part)
+            if basename and "." in basename:
+                return basename
+            return path_part
+        except Exception:
+            return u.lower().strip()
 
     def _is_valid_img(src: str) -> bool:
         if not src or not src.startswith('http'):
@@ -275,6 +314,9 @@ async def _fetch_article_images(url: str, existing_thumb: Optional[str] = None) 
             return False
         if any(p in sl for p in _SKIP_PATTERNS):
             return False
+        # Skip standard low-resolution dimensions in url paths (e.g. /150x150/ or -50x50.jpg)
+        if re.search(r'[/\-_]([1-9]\d|1\d\d|2\d\d)x([1-9]\d|1\d\d|2\d\d)\b', sl):
+            return False
         return True
 
     try:
@@ -282,7 +324,7 @@ async def _fetch_article_images(url: str, existing_thumb: Optional[str] = None) 
         async with httpx.AsyncClient(timeout=12, follow_redirects=True, headers=headers) as cli:
             r = await cli.get(url)
         if r.status_code != 200:
-            return (existing_thumb, None)
+            return (_upgrade_to_hd(existing_thumb) if existing_thumb else None, None)
         html = r.text
 
         # 1. Extract og:image as hero candidate
@@ -308,37 +350,50 @@ async def _fetch_article_images(url: str, existing_thumb: Optional[str] = None) 
                 img_srcs.append(parts[-1])
 
         # Normalize relative URLs
-        from urllib.parse import urljoin
         img_srcs = [urljoin(url, s) for s in img_srcs]
 
         # Filter: valid images only
         candidates = [s for s in img_srcs if _is_valid_img(s)]
-        # De-duplicate preserving order
+        
+        # De-duplicate & upgrade to HD, preserving order
         seen = set()
         unique_candidates = []
         for c in candidates:
-            if c not in seen:
-                seen.add(c)
-                unique_candidates.append(c)
+            c_hd = _upgrade_to_hd(c)
+            c_clean = _clean_url_for_compare(c_hd)
+            if c_clean and c_clean not in seen:
+                seen.add(c_clean)
+                unique_candidates.append(c_hd)
 
         # Resolve hero
         hero = existing_thumb or og_image
-        if hero and not _is_valid_img(hero):
-            hero = None
+        if hero:
+            hero = _upgrade_to_hd(hero)
+            if not _is_valid_img(hero):
+                hero = None
+        
         if not hero and unique_candidates:
             hero = unique_candidates[0]
 
-        # Pick body image: first candidate that isn't the hero
+        hero_clean = _clean_url_for_compare(hero) if hero else ""
+
+        # Pick body image: first candidate that is mathematically unique from hero
         body = None
         for c in unique_candidates:
-            if c != hero:
+            c_clean = _clean_url_for_compare(c)
+            if c_clean and c_clean != hero_clean:
                 body = c
                 break
+
+        # Double check to ensure we got two unique images
+        if hero and body:
+            if _clean_url_for_compare(hero) == _clean_url_for_compare(body):
+                body = None
 
         return (hero, body)
     except Exception as e:
         logger.warning(f"[ImageScraper] Failed for {url}: {e}")
-        return (existing_thumb, None)
+        return (_upgrade_to_hd(existing_thumb) if existing_thumb else None, None)
 
 
 async def run_scraper_pipeline() -> str:
