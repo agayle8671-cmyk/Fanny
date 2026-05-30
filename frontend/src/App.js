@@ -28,14 +28,28 @@ const ScrollToTop = () => {
   return null;
 };
 
+// Wrapper component to conditionally render layout elements based on route
+const MainLayout = ({ children }) => {
+  const { pathname } = useLocation();
+  const isEditorial = pathname === "/editorial-desk";
+
+  return (
+    <>
+      {!isEditorial && <Navbar />}
+      <main>{children}</main>
+      {!isEditorial && <FloatingShareButton />}
+      {!isEditorial && <Footer />}
+    </>
+  );
+};
+
 function App() {
   return (
     <div className="App min-h-screen bg-[#050505] text-white">
       <BrowserRouter>
         <ScrollToTop />
         <PageProgress />
-        <Navbar />
-        <main>
+        <MainLayout>
           <PageTransition>
             <Routes>
               <Route path="/" element={<Home />} />
@@ -54,9 +68,7 @@ function App() {
               <Route path="*" element={<NotFound />} />
             </Routes>
           </PageTransition>
-        </main>
-        <FloatingShareButton />
-        <Footer />
+        </MainLayout>
       </BrowserRouter>
     </div>
   );
