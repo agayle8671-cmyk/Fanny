@@ -39,6 +39,9 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
   const [reason, setReason] = useState("");
   const [rejecting, setRejecting] = useState(false);
 
+  // Inline loading trackers
+  const [reprocessingIds, setReprocessingIds] = useState(new Set());
+
   // Fetch queue drafts
   const loadQueue = useCallback(async () => {
     setLoading(true);
@@ -157,6 +160,29 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
       loadQueue();
       onStatsChange();
     } catch (_) {}
+  };
+
+  const reAiAndPublish = async (e, article) => {
+    e?.stopPropagation();
+    setReprocessingIds(prev => {
+      const s = new Set(prev);
+      s.add(article.id);
+      return s;
+    });
+    try {
+      // 1. Reprocess (Run Groq AI summary + title re-writer)
+      await apiCall(`/editorial/reprocess/${article.id}`, apiKey, "POST");
+      // 2. Approve (Publish the article)
+      await apiCall(`/editorial/approve/${article.id}`, apiKey, "POST");
+      // 3. Reload lists & stats
+      loadQueue();
+      onStatsChange();
+    } catch (_) {}
+    setReprocessingIds(prev => {
+      const s = new Set(prev);
+      s.delete(article.id);
+      return s;
+    });
   };
 
   const publishActiveDraft = async () => {
@@ -758,7 +784,21 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
                     </div>
 
                     {/* Quick Action Side Buttons */}
-                    <div className="flex flex-col gap-2 justify-center flex-shrink-0 min-w-[90px] border-l border-white/5 pl-4 ml-2">
+                    <div className="flex flex-col gap-2 justify-center flex-shrink-0 min-w-[110px] border-l border-white/5 pl-4 ml-2">
+                      <button
+                        onClick={(e) => reAiAndPublish(e, a)}
+                        disabled={reprocessingIds.has(a.id)}
+                        className="flex items-center justify-center gap-1 bg-[#05d9e8]/10 hover:bg-[#05d9e8] text-[#05d9e8] hover:text-black border border-[#05d9e8]/20 hover:border-[#05d9e8]/50 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {reprocessingIds.has(a.id) ? (
+                          <>
+                            <RefreshCw size={10} className="animate-spin text-[#05d9e8]" />
+                            Reprocessing...
+                          </>
+                        ) : (
+                          "⚡ Re-AI & Publish"
+                        )}
+                      </button>
                       <button
                         onClick={(e) => approveDraft(e, a)}
                         className="flex items-center justify-center gap-1 bg-[#ff2a6d]/10 hover:bg-[#ff2a6d] text-[#ff2a6d] hover:text-white border border-[#ff2a6d]/20 hover:border-[#ff2a6d]/50 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all duration-300"
