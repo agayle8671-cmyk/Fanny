@@ -872,7 +872,7 @@ async def editorial_delete_article(article_id: str, _: bool = Depends(require_ed
 # ── Patch article (category / summary edit) ───────────────────────────────────
 @api_router.patch("/editorial/article/{article_id}")
 async def patch_article(article_id: str, body: dict, _: bool = Depends(require_editorial_key)):
-    allowed = {"category", "aiSummary", "title", "heroImage", "imageThumbnail", "newsValueScore"}
+    allowed = {"category", "aiSummary", "title", "heroImage", "imageThumbnail", "newsValueScore", "aiContent"}
     updates = {k: v for k, v in body.items() if k in allowed}
     if not updates:
         raise HTTPException(status_code=400, detail="No valid fields")
