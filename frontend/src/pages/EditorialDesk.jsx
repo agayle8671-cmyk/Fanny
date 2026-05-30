@@ -290,13 +290,17 @@ export default function EditorialDesk() {
                 <span className="ml-2">Loading Command Panel...</span>
               </div>
             }>
-              {tab === "queue"     && <QueuePanel apiKey={apiKey} stats={stats} onStatsChange={loadStats} />}
-              {tab === "published" && <PublishedPanel apiKey={apiKey} />}
-              {tab === "scraper"   && <ScraperControlPanel apiKey={apiKey} />}
-              {tab === "sources"   && <SourcesPanel apiKey={apiKey} />}
-              {tab === "site"      && <SystemConfigPanel apiKey={apiKey} />}
-              {tab === "timeline"  && <TimelinePanel apiKey={apiKey} />}
-              {tab === "manual"    && <ManualEntryPanel apiKey={apiKey} />}
+              {tab === "queue" && <QueuePanel apiKey={apiKey} stats={stats} onStatsChange={loadStats} />}
+              {tab !== "queue" && (
+                <div className="h-full overflow-y-auto ed-scrollbar">
+                  {tab === "published" && <PublishedPanel apiKey={apiKey} />}
+                  {tab === "scraper"   && <ScraperControlPanel apiKey={apiKey} />}
+                  {tab === "sources"   && <SourcesPanel apiKey={apiKey} />}
+                  {tab === "site"      && <SystemConfigPanel apiKey={apiKey} />}
+                  {tab === "timeline"  && <TimelinePanel apiKey={apiKey} />}
+                  {tab === "manual"    && <ManualEntryPanel apiKey={apiKey} />}
+                </div>
+              )}
             </Suspense>
           </div>
         </div>
