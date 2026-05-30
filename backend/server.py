@@ -140,6 +140,31 @@ def _is_gta6_relevant(title: str, excerpt: str, quota: int) -> bool:
         return title_hits >= 1 or body_hits >= 2
     return body_hits >= 1
 
+async def _is_gta6_relevant_ai(title: str, excerpt: str) -> bool:
+    """Uses Groq Llama to classify if a news headline/excerpt is directly related to GTA 6 / Rockstar."""
+    global GROQ_API_KEY
+    if not GROQ_API_KEY:
+        return True  # fallback if API key is not configured yet
+    
+    system_prompt = (
+        "You are an AI news relevance classifier. Determine if the news article title and excerpt are "
+        "directly related to Grand Theft Auto VI (GTA 6), Leonida, Vice City, Rockstar Games, or Strauss Zelnick. "
+        "Reply with only one word: YES or NO."
+    )
+    user_prompt = f"Title: \"{title}\"\nExcerpt: \"{excerpt or ''}\""
+    
+    try:
+        ans = await _groq_chat(
+            [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+            max_tokens=5,
+        )
+        if ans and "yes" in ans.lower():
+            return True
+    except Exception as e:
+        logger.warning(f"[AI Relevance Filter] Relevance check failed: {e}")
+        return True  # fallback to true on network error to prevent false negatives
+    return False
+
 def _extract_yt_thumbnail(video_id: str, quality: str = "hqdefault") -> str:
     return f"https://img.youtube.com/vi/{video_id}/{quality}.jpg"
 
@@ -291,10 +316,15 @@ async def run_scraper_pipeline() -> str:
                     title   = item["title"]
                     excerpt = item.get("excerpt") or ""
 
-                    # GTA6 relevance gate (YouTube sources skip keyword check)
+                    # GTA6 relevance gate (YouTube sources skip checks; Web feeds run fast regex + Option C Groq filter)
                     is_yt = src.get("type") == "youtube"
-                    if not is_yt and not _is_gta6_relevant(title, excerpt, src.get("quota", 5)):
-                        continue
+                    if not is_yt:
+                        if not _is_gta6_relevant(title, excerpt, src.get("quota", 5)):
+                            continue
+                        # Stage 2: AI relevance check (Option C)
+                        if not await _is_gta6_relevant_ai(title, excerpt):
+                            logger.info(f"[Scraper] Skipping off-topic feed item: {title[:60]}")
+                            continue
 
                     url_hash = item["url_hash"]
 
@@ -405,13 +435,15 @@ JOURNALIST_SYSTEM = f"""You are the editor-in-chief of The Leonida Vice — an u
 
 {LEONIDA_WORLD_KNOWLEDGE}
 
-Your job: write a DECK/SUMMARY that would appear under a headline in print — sharp, substantive, and worth reading on its own.
+Your job:
+1. Write a brand-aligned, original, rewritten headline/title for this story in the unique "Leonida Vice" tone (investigative, cinematic, punchy). Do NOT copy the original headline verbatim. Start it on the first line prefixed by: "REWRITTEN TITLE: "
+2. Write a DECK/SUMMARY that would appear under the headline — sharp, substantive, and worth reading on its own.
 
 RULES:
 - Only report facts present in the source. Never invent quotes, statistics, or events.
 - Voice: authoritative, cinematic, slightly conspiratorial. Write like you've seen the build.
-- Length: 3-5 sentences. 80-160 words. Enough to give real context, not just tease.
-- Do NOT open with "The article", "According to", or a restatement of the headline.
+- Length of summary: 3-5 sentences. 80-160 words. Enough to give real context, not just tease.
+- Do NOT open the summary with "The article", "According to", or a restatement of the headline.
 - DO contextualise within the wider GTA VI picture where the source permits it.
 - After the summary, on a new line: CONFIDENCE: high|medium|low
 - Then on a new line: TAGS: tag1, tag2, tag3, tag4"""
@@ -495,9 +527,20 @@ async def ai_summarize(article: dict, groq_key: Optional[str] = None) -> dict:
             max_tokens=400,
         )
         if raw:
-            conf_m = re.search(r'CONFIDENCE:\s*(high|medium|low)', raw, re.I)
-            tags_m = re.search(r'TAGS:\s*(.+)$', raw, re.I | re.M)
-            summary = re.sub(r'CONFIDENCE:\s*(high|medium|low).*', '', raw, flags=re.I|re.S)
+            title_m = re.search(r'REWRITTEN TITLE:\s*(.+)$', raw, re.I | re.M)
+            rewritten_title = title_m.group(1).strip() if title_m else None
+            
+            # Clean summary by removing the rewritten title line
+            summary = raw
+            if rewritten_title:
+                summary = re.sub(r'REWRITTEN TITLE:.+$', '', summary, flags=re.I|re.M)
+                # Sanitize title tags or quotes
+                rewritten_title = re.sub(r'["\']', '', rewritten_title).strip()
+                result["title"] = rewritten_title
+            
+            conf_m = re.search(r'CONFIDENCE:\s*(high|medium|low)', summary, re.I)
+            tags_m = re.search(r'TAGS:\s*(.+)$', summary, re.I | re.M)
+            summary = re.sub(r'CONFIDENCE:\s*(high|medium|low).*', '', summary, flags=re.I|re.S)
             summary = re.sub(r'TAGS:.+$', '', summary, flags=re.I|re.M).strip()
             confidence = conf_m.group(1).lower() if conf_m else "medium"
             tags = [t.strip() for t in tags_m.group(1).split(",")][:6] if tags_m else []
