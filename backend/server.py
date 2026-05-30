@@ -251,21 +251,95 @@ async def _fetch_rss(source: dict) -> List[dict]:
         })
     return results
 
-async def _fetch_og_image(url: str) -> Optional[str]:
-    """Try to fetch og:image from an article's HTML."""
+async def _fetch_article_images(url: str, existing_thumb: Optional[str] = None) -> tuple:
+    """
+    Scrape the article source page and return (hero_image, body_image).
+    - hero_image: og:image or first large image found
+    - body_image: a DIFFERENT image from the same page (unique, not a duplicate of hero)
+    Returns (None, None) if suitable images cannot be found.
+    Skips icons, logos, avatars, ads, and tiny images (< 200px heuristic via URL patterns).
+    """
     import httpx
+    _SKIP_PATTERNS = [
+        'logo', 'icon', 'avatar', 'favicon', 'badge', 'sprite', 'pixel',
+        'ad', 'banner', 'sponsor', 'tracking', '1x1', 'button', 'thumb_small',
+        'profile', 'author', 'gravatar', 'wp-emoji',
+    ]
+    _IMG_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.webp', '.gif')
+
+    def _is_valid_img(src: str) -> bool:
+        if not src or not src.startswith('http'):
+            return False
+        sl = src.lower()
+        if not any(ext in sl for ext in _IMG_EXTENSIONS):
+            return False
+        if any(p in sl for p in _SKIP_PATTERNS):
+            return False
+        return True
+
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; LeonidaViceBot/1.0)"}
-        async with httpx.AsyncClient(timeout=8, follow_redirects=True, headers=headers) as cli:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
+        async with httpx.AsyncClient(timeout=12, follow_redirects=True, headers=headers) as cli:
             r = await cli.get(url)
         if r.status_code != 200:
-            return None
-        m = re.search(r'<meta[^>]+(?:property=["\']og:image["\']|name=["\']og:image["\'])[^>]*content=["\']([^"\']+)["\']', r.text, re.I)
-        if not m:
-            m = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]*(?:property=["\']og:image["\']|name=["\']og:image["\'])', r.text, re.I)
-        return m.group(1).strip() if m else None
-    except Exception:
-        return None
+            return (existing_thumb, None)
+        html = r.text
+
+        # 1. Extract og:image as hero candidate
+        og_match = re.search(
+            r'<meta[^>]+(?:property=["\']og:image["\']|name=["\']og:image["\'])[^>]*content=["\']([^"\']+)["\']',
+            html, re.I
+        )
+        if not og_match:
+            og_match = re.search(
+                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]*(?:property=["\']og:image["\']|name=["\']og:image["\'])',
+                html, re.I
+            )
+        og_image = og_match.group(1).strip() if og_match else None
+
+        # 2. Extract ALL <img src> and srcset candidates from the page body
+        img_srcs = re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', html, re.I)
+        # Also grab srcset largest variants
+        srcsets = re.findall(r'srcset=["\']([^"\']+)["\']', html, re.I)
+        for srcset in srcsets:
+            # pick the last (largest) entry in each srcset
+            parts = [p.strip().split()[0] for p in srcset.split(',') if p.strip()]
+            if parts:
+                img_srcs.append(parts[-1])
+
+        # Normalize relative URLs
+        from urllib.parse import urljoin
+        img_srcs = [urljoin(url, s) for s in img_srcs]
+
+        # Filter: valid images only
+        candidates = [s for s in img_srcs if _is_valid_img(s)]
+        # De-duplicate preserving order
+        seen = set()
+        unique_candidates = []
+        for c in candidates:
+            if c not in seen:
+                seen.add(c)
+                unique_candidates.append(c)
+
+        # Resolve hero
+        hero = existing_thumb or og_image
+        if hero and not _is_valid_img(hero):
+            hero = None
+        if not hero and unique_candidates:
+            hero = unique_candidates[0]
+
+        # Pick body image: first candidate that isn't the hero
+        body = None
+        for c in unique_candidates:
+            if c != hero:
+                body = c
+                break
+
+        return (hero, body)
+    except Exception as e:
+        logger.warning(f"[ImageScraper] Failed for {url}: {e}")
+        return (existing_thumb, None)
+
 
 async def run_scraper_pipeline() -> str:
     """Main scrape pipeline. Returns run_id."""
@@ -333,13 +407,21 @@ async def run_scraper_pipeline() -> str:
                     if existing:
                         continue
 
-                    # OG image fetch if no thumbnail
+                    # Fetch hero + unique body image from source page
                     thumb = item.get("image_thumbnail")
-                    if not thumb and not item.get("video_thumbnail"):
-                        thumb = await _fetch_og_image(item["source_url"])
+                    body_image = None
 
-                    if not thumb and not item.get("video_thumbnail"):
-                        continue  # no image = skip
+                    if not item.get("is_video"):
+                        scraped_hero, scraped_body = await _fetch_article_images(
+                            item["source_url"], existing_thumb=thumb
+                        )
+                        thumb = scraped_hero or thumb
+                        body_image = scraped_body
+
+                    # Strict gate: both hero AND body image required — no fallbacks
+                    if not thumb or not body_image:
+                        logger.info(f"[Scraper] Skipping — could not find 2 unique images for: {title[:60]}")
+                        continue
 
                     doc = {
                         "id":             str(uuid.uuid4()),
@@ -350,6 +432,7 @@ async def run_scraper_pipeline() -> str:
                         "sourceUrl":      item["source_url"],
                         "urlHash":        url_hash,
                         "imageThumbnail": thumb,
+                        "bodyImage":      body_image,
                         "videoUrl":       item.get("video_url"),
                         "videoThumbnail": item.get("video_thumbnail"),
                         "isVideo":        item.get("is_video", False),
@@ -365,7 +448,6 @@ async def run_scraper_pipeline() -> str:
                         "scrapedAt":      now_iso,
                         "rejectionReason":None,
                         "approvedAt":     None,
-                        # Legacy compat fields
                         "body":           [],
                         "author":         None,
                         "date":           None,
@@ -416,54 +498,6 @@ async def run_scraper_pipeline() -> str:
         _scraper_running = False
 
     return run_id
-
-# ══════════════════════════════════════════════════════════════════════════════
-# HD FALLBACK IMAGE POOL (all 2400px+ HD sources — no fuzzy images)
-# ══════════════════════════════════════════════════════════════════════════════
-_HD_FALLBACK_POOL = [
-    "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/8f27bda64f64ebd6453620848c5ec42959dae5b3db7d13932e1b573769470f79.png",
-    "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/18ea9848372b348f0168b03c23d7b02531d161f51b1f30a4a089c2374b0e293c.png",
-    "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/6dccb50f1f97f2f4f27319ab01773127d24f381cb080704869c46c535155b382.png",
-    "https://images.unsplash.com/photo-1614728894747-a83421e2b9c9?q=80&w=2400&auto=format&fit=crop",
-    "https://images.unsplash.com/photo-1533106497176-45ae19e68ba2?q=80&w=2400&auto=format&fit=crop",
-    "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?q=80&w=2400&auto=format&fit=crop",
-    "https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?q=80&w=2400&auto=format&fit=crop",
-    "https://images.unsplash.com/photo-1444723121867-7a241cacace9?q=80&w=2400&auto=format&fit=crop",
-    "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?q=80&w=2400&auto=format&fit=crop",
-    "https://images.unsplash.com/photo-1521790797524-b2497295b8a0?q=80&w=2400&auto=format&fit=crop",
-]
-
-def _hd_fallback_for_id(article_id: str) -> str:
-    """Stable HD fallback image based on article ID hash."""
-    h = 0
-    for c in str(article_id):
-        h = (h * 31 + ord(c)) & 0xFFFFFFFF
-    return _HD_FALLBACK_POOL[h % len(_HD_FALLBACK_POOL)]
-
-def _split_dense_paragraphs(text: str, max_words: int = 140) -> list:
-    """Split text into paragraphs of ≤ max_words words each."""
-    import re as _re
-    raw_paras = [p.strip() for p in _re.split(r'\n+', text) if p.strip()]
-    result = []
-    for para in raw_paras:
-        words = para.split()
-        if len(words) <= max_words:
-            result.append(para)
-        else:
-            # Split at sentence boundaries
-            sentences = _re.split(r'(?<=[.!?])\s+', para)
-            chunk, chunk_words = [], 0
-            for sent in sentences:
-                sw = len(sent.split())
-                if chunk_words + sw > max_words and chunk:
-                    result.append(' '.join(chunk))
-                    chunk, chunk_words = [sent], sw
-                else:
-                    chunk.append(sent)
-                    chunk_words += sw
-            if chunk:
-                result.append(' '.join(chunk))
-    return result if result else [text]
 
 # ══════════════════════════════════════════════════════════════════════════════
 # AI SUMMARIZER (Groq)
@@ -548,6 +582,29 @@ def _best_source_text(title: str, excerpt: Optional[str], content: Optional[str]
         return content.strip()[:800]
     return title
 
+def _split_dense_paragraphs(text: str, max_words: int = 140) -> list:
+    """Split text into paragraphs of <= max_words words each."""
+    raw_paras = [p.strip() for p in re.split(r'\n+', text) if p.strip()]
+    result = []
+    for para in raw_paras:
+        words = para.split()
+        if len(words) <= max_words:
+            result.append(para)
+        else:
+            sentences = re.split(r'(?<=[.!?])\s+', para)
+            chunk, chunk_words = [], 0
+            for sent in sentences:
+                sw = len(sent.split())
+                if chunk_words + sw > max_words and chunk:
+                    result.append(' '.join(chunk))
+                    chunk, chunk_words = [sent], sw
+                else:
+                    chunk.append(sent)
+                    chunk_words += sw
+            if chunk:
+                result.append(' '.join(chunk))
+    return result if result else [text]
+
 async def ai_summarize(article: dict, groq_key: Optional[str] = None) -> dict:
     """Returns dict with aiSummary, aiContent, aiTags, newsValueScore, aiProcessed."""
     global GROQ_API_KEY
@@ -606,17 +663,11 @@ async def ai_summarize(article: dict, groq_key: Optional[str] = None) -> dict:
             max_tokens=750,
         )
         if full and len(full.strip()) > 80:
-            # Enforce paragraph density rule: split any block > 140 words
+            # Enforce paragraph density: split any block > 140 words, ensure >= 3 paragraphs
             paras = _split_dense_paragraphs(full.strip(), max_words=140)
-            # Ensure at least 3 paragraphs
             while len(paras) < 3:
                 paras.append(paras[-1] if paras else "Further details are pending from Leonida Vice field correspondents.")
             result["aiContent"] = "\n\n".join(paras)
-
-        # Auto-assign HD fallback thumbnail if article has no image
-        article_id = article.get("id", "")
-        if not article.get("imageThumbnail") and not article.get("videoThumbnail") and article_id:
-            result["imageThumbnail"] = _hd_fallback_for_id(article_id)
 
         result["aiProcessed"] = True
     except Exception as e:
@@ -873,6 +924,11 @@ async def approve_article(
     art = await db.scraped_articles.find_one({"id": article_id}, {"_id": 0})
     if not art:
         raise HTTPException(status_code=404, detail="Not found")
+    # Require both images — no fallbacks
+    if not art.get("imageThumbnail") and not art.get("videoThumbnail"):
+        raise HTTPException(status_code=422, detail="Article has no hero image and cannot be published.")
+    if not art.get("bodyImage"):
+        raise HTTPException(status_code=422, detail="Article has no body image and cannot be published. Scraper must provide both images.")
 
     now_iso = datetime.now(timezone.utc).isoformat()
     # Run AI summarization inline before publishing if not yet processed
@@ -883,12 +939,6 @@ async def approve_article(
             art.update(ai_updates)
         except Exception as e:
             logger.warning(f"[Editorial] AI pre-summarize failed for {article_id}: {e}")
-
-    # Assign HD fallback thumbnail if still missing after AI processing
-    if not art.get("imageThumbnail") and not art.get("videoThumbnail"):
-        fallback_img = _hd_fallback_for_id(article_id)
-        await db.scraped_articles.update_one({"id": article_id}, {"$set": {"imageThumbnail": fallback_img}})
-        art["imageThumbnail"] = fallback_img
 
     await db.scraped_articles.update_one(
         {"id": article_id},
@@ -925,15 +975,14 @@ async def bulk_approve(
         query["id"] = {"$in": ids}
     articles = await db.scraped_articles.find(query, {"_id": 0}).to_list(50)
 
-    # Assign HD fallback thumbnails instead of deleting thumbnail-less articles
-    for a in articles:
-        if not a.get("imageThumbnail") and not a.get("videoThumbnail"):
-            fallback_img = _hd_fallback_for_id(a["id"])
-            await db.scraped_articles.update_one({"id": a["id"]}, {"$set": {"imageThumbnail": fallback_img}})
-            a["imageThumbnail"] = fallback_img
+    # Only approve articles that have BOTH hero image AND body image — no fallbacks
+    valid = [a for a in articles if (a.get("imageThumbnail") or a.get("videoThumbnail")) and a.get("bodyImage")]
+    skipped = len(articles) - len(valid)
+    if skipped:
+        logger.info(f"[Bulk Approve] Skipped {skipped} articles missing hero or body image")
 
-    background_tasks.add_task(_bulk_approve_background, articles)
-    return {"success": True, "queued": len(articles)}
+    background_tasks.add_task(_bulk_approve_background, valid)
+    return {"success": True, "queued": len(valid), "skipped": skipped}
 
 async def _bulk_approve_background(articles: list):
     now_iso = datetime.now(timezone.utc).isoformat()

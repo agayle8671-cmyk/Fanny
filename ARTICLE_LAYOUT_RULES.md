@@ -5,28 +5,26 @@
 
 ## Image Structure (2 images per article — STRICT)
 
-All images used (header, thumbnail, and body slots) MUST be high-definition (HD) quality to prevent fuzzy or low-resolution rendering. No exceptions.
+All images MUST be HD quality and scraped directly from the same source website as the article. No fallback pools. No generic stock images. No exceptions.
 
 | Slot | Name | Source | Rule |
 |------|------|--------|------|
-| 1 | **Hero / Header** | `article.heroImage` or `article.imageThumbnail` | Full-bleed behind the title. Never duplicated below. |
-| 2 | **Body Image** | Contextual — derived from article topic | Must be RELATED to the article content. Chosen from `aiTags` keywords or category. NEVER a random generic image. NEVER a copy of the hero. |
+| 1 | **Hero / Header** | Scraped from source page (`og:image` or first large image) | Full-bleed behind the title. Stored as `imageThumbnail` / `heroImage`. |
+| 2 | **Body Image** | Scraped from same source page — unique, different from hero | Must be a second distinct image from the article source. Stored as `bodyImage`. NEVER a copy of the hero. |
 
-## Body Image Selection Logic (in priority order)
-1. Match against article `aiTags` — pick an image thematically tied to those tags
-2. Fall back to article `category` if no tag match
-3. Use a hash of the article `id` as a tie-breaker within matched pool
-4. The secondary image index must differ by at least 4 slots from the primary
+**If the scraper cannot find both images from the source page, the article is SKIPPED and not ingested. No exceptions.**
+
+## Body Image Selection Logic
+1. Fetch the full source article HTML page
+2. Extract `og:image` as the hero candidate
+3. Extract all `<img src>` and `srcset` candidates from the page
+4. Filter out icons, logos, avatars, ads, sprites, and tracking pixels
+5. Hero = `og:image` or first valid candidate
+6. Body = first valid candidate that is NOT the hero
+7. If no unique second image exists — article is discarded, not published
 
 ## Tag → Theme → Image Mappings
-- Tags containing `union`, `lawsuit`, `legal`, `rights` → corporate/workers image
-- Tags containing `rockstar`, `GTA6`, `GTA`, `game`, `trailer`, `RAGE`, `engine`, `fps`, `performance`, `AI`, `tech` → Vice City / Florida cinematic
-- Tags containing `leak`, `screenshot`, `reveal` → mysterious/dark city
-- Tags containing `video`, `youtube`, `media`, `entertainment` → cinema/screen
-- Tags containing `market`, `stock`, `business`, `economy`, `sales` → financial district
-- Tags containing `crime`, `police`, `heist` → dark urban / night city
-- Tags containing `sports` → action / stadium
-- Tags containing `music`, `soundtrack` → concert / neon
+*(Deprecated — body images are now scraped directly from the source page, not selected from a pool)*
 
 ---
 
@@ -61,10 +59,11 @@ All images used (header, thumbnail, and body slots) MUST be high-definition (HD)
 ---
 
 ## What Is FORBIDDEN
-- ❌ Random/generic Unsplash images with no connection to the article topic
+- ❌ Fallback image pools or generic stock images (Unsplash, Pexels, etc.) as body images
 - ❌ Duplicating the hero image as the body image
+- ❌ Publishing articles without a scraped hero AND scraped body image from the source
 - ❌ Empty `body` arrays rendering as blank articles
 - ❌ `/newswire` routes — all articles live under `/news/:slug`
 - ❌ More than 1 body image per article
-- ❌ Non-HD or low-resolution/fuzzy images (all assets must be crisp HD)
+- ❌ Non-HD or low-resolution/fuzzy images (all assets must be crisp HD from source)
 

@@ -6,7 +6,6 @@ import { api } from "../lib/api";
 import { ReadingProgress } from "../components/ReadingProgress";
 import { ShareWidget } from "../components/ShareWidget";
 import { ArticleTOC, slugify } from "../components/ArticleTOC";
-import { getFallbackImage } from "../lib/fallback-image";
 
 // Loading skeleton for dynamic articles
 const ArticleSkeleton = () => (
@@ -72,11 +71,13 @@ function normalizeArticle(a) {
     text: rawParagraphs[1]
   });
 
-  // Image 1: Topic-relevant image derived from aiTags + category (NEVER a copy of the hero)
+  // Body image: use the scraped unique source image stored in DB
+  // (never a fallback pool — if bodyImage is missing the article never gets published)
   const heroUrl = a.heroImage || a.imageThumbnail || a.videoThumbnail || null;
+  const bodyImageSrc = a.bodyImage || null;
   bodyBlocks.push({
     type: "image",
-    src: getFallbackImage(a.category, a.id, a.aiTags || [], heroUrl),
+    src: bodyImageSrc,
     caption: `Field intelligence: ${(a.aiTags && a.aiTags[0]) ? a.aiTags[0] + ' coverage' : (a.category || 'Leonida') + ' bureau'} — ${new Date(a.publishedAt || a.approvedAt || Date.now()).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}.`
   });
 
