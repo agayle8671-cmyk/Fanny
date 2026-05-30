@@ -924,11 +924,23 @@ async def approve_article(
     art = await db.scraped_articles.find_one({"id": article_id}, {"_id": 0})
     if not art:
         raise HTTPException(status_code=404, detail="Not found")
-    # Require both images — no fallbacks
+    # Require a hero image
     if not art.get("imageThumbnail") and not art.get("videoThumbnail"):
         raise HTTPException(status_code=422, detail="Article has no hero image and cannot be published.")
+    # If bodyImage is still missing, attempt a last-chance scrape from the source
     if not art.get("bodyImage"):
-        raise HTTPException(status_code=422, detail="Article has no body image and cannot be published. Scraper must provide both images.")
+        source_url = art.get("sourceUrl") or art.get("source_url", "")
+        if source_url:
+            try:
+                existing_thumb = art.get("imageThumbnail") or art.get("videoThumbnail")
+                _, scraped_body = await _fetch_article_images(source_url, existing_thumb=existing_thumb)
+                if scraped_body:
+                    await db.scraped_articles.update_one({"id": article_id}, {"$set": {"bodyImage": scraped_body}})
+                    art["bodyImage"] = scraped_body
+            except Exception:
+                pass
+    if not art.get("bodyImage"):
+        raise HTTPException(status_code=422, detail="Article has no body image. Cannot publish without 2 unique source images.")
 
     now_iso = datetime.now(timezone.utc).isoformat()
     # Run AI summarization inline before publishing if not yet processed
@@ -1040,9 +1052,24 @@ async def reprocess_article(article_id: str, body: dict = {}, _: bool = Depends(
     art = await db.scraped_articles.find_one({"id": article_id}, {"_id": 0})
     if not art:
         raise HTTPException(status_code=404, detail="Not found")
+
     updates = await ai_summarize(art, groq_key=groq_key or GROQ_API_KEY or None)
+
+    # If bodyImage is missing (old article pre-dating this rule), scrape it now
+    if not art.get("bodyImage"):
+        source_url = art.get("sourceUrl") or art.get("source_url", "")
+        if source_url:
+            existing_thumb = art.get("imageThumbnail") or art.get("videoThumbnail")
+            try:
+                _, scraped_body = await _fetch_article_images(source_url, existing_thumb=existing_thumb)
+                if scraped_body:
+                    updates["bodyImage"] = scraped_body
+                    logger.info(f"[Reprocess] Backfilled bodyImage for {article_id}")
+            except Exception as e:
+                logger.warning(f"[Reprocess] Could not scrape bodyImage for {article_id}: {e}")
+
     await db.scraped_articles.update_one({"id": article_id}, {"$set": updates})
-    # Return full set of updated fields so the frontend can refresh state immediately
+
     return {
         "success": True,
         "title": updates.get("title"),
@@ -1051,6 +1078,7 @@ async def reprocess_article(article_id: str, body: dict = {}, _: bool = Depends(
         "aiTags": updates.get("aiTags"),
         "newsValueScore": updates.get("newsValueScore"),
         "imageThumbnail": updates.get("imageThumbnail"),
+        "bodyImage": updates.get("bodyImage"),
     }
 
 # ── Hero / Featured ───────────────────────────────────────────────────────────

@@ -1,6 +1,5 @@
 import { useState, useEffect, useDeferredValue, useMemo, useCallback } from "react";
-import { apiCall, CATEGORIES, REJECTION_REASONS } from "./api";
-import { getFallbackImage } from "../../lib/fallback-image";
+import { apiCall, CATEGORIES, REJECTION_REASONS, PLACEHOLDER_IMAGE } from "./api";
 import { 
   Sparkles, CheckCircle, AlertTriangle, AlertCircle, X, ShieldAlert,
   ArrowLeft, Clock, RefreshCw, Layers, Edit, Eye, Check, Play 
@@ -28,6 +27,7 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
   const [editorCategory, setEditorCategory] = useState("Intel");
   const [editorSummary, setEditorSummary] = useState("");
   const [editorHeroImage, setEditorHeroImage] = useState("");
+  const [editorBodyImage, setEditorBodyImage] = useState("");
   const [editorParagraphs, setEditorParagraphs] = useState([]);
   const [tuningPrompt, setTuningPrompt] = useState("");
   const [reprompting, setReprompting] = useState(false);
@@ -67,6 +67,7 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
     setEditorCategory(article.category ?? "Intel");
     setEditorSummary(article.aiSummary ?? "");
     setEditorHeroImage(article.imageThumbnail ?? article.videoThumbnail ?? "");
+    setEditorBodyImage(article.bodyImage ?? "");
     setEditorScore(article.newsValueScore ?? 65);
     
     // Parse raw content into paragraphs array
@@ -138,6 +139,7 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
         category: editorCategory,
         aiSummary: editorSummary,
         imageThumbnail: editorHeroImage,
+        bodyImage: editorBodyImage,
         newsValueScore: Number(editorScore),
         aiContent: editorParagraphs.join("\n\n")
       };
@@ -166,22 +168,25 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
 
   const reAiAndPublish = async (e, article) => {
     e?.stopPropagation();
-    setReprocessingIds(prev => {
-      const s = new Set(prev);
-      s.add(article.id);
-      return s;
-    });
+    setReprocessingIds(prev => { const s = new Set(prev); s.add(article.id); return s; });
     try {
+      // Step 1: Re-AI (also backfills bodyImage from source if missing)
       await apiCall(`/editorial/reprocess/${article.id}`, apiKey, "POST");
-      await apiCall(`/editorial/approve/${article.id}`, apiKey, "POST");
-      loadQueue();
-      onStatsChange();
-    } catch (_) {}
-    setReprocessingIds(prev => {
-      const s = new Set(prev);
-      s.delete(article.id);
-      return s;
-    });
+      // Step 2: Approve & publish
+      try {
+        await apiCall(`/editorial/approve/${article.id}`, apiKey, "POST");
+        loadQueue();
+        onStatsChange();
+      } catch (approveErr) {
+        const msg = approveErr?.message || "Could not publish";
+        // Reload queue so the card state refreshes even on failure
+        loadQueue();
+        alert(`⚠️ Publish blocked: ${msg}\n\nThe source page may not have a second unique image. Try a different article.`);
+      }
+    } catch (err) {
+      alert(`Re-AI failed: ${err?.message || "Unknown error"}`);
+    }
+    setReprocessingIds(prev => { const s = new Set(prev); s.delete(article.id); return s; });
   };
 
   // Re-AI inside the editor — reprocess + refresh all editor fields
@@ -189,23 +194,33 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
     if (!activeDraft) return;
     andPublish ? setReAiPublishingEditor(true) : setReAiingEditor(true);
     try {
+      // Step 1: Reprocess (AI summary + backfill bodyImage if missing)
       const res = await apiCall(`/editorial/reprocess/${activeDraft.id}`, apiKey, "POST");
       if (res && res.success) {
         if (res.title) setEditorTitle(res.title);
         if (res.aiSummary) setEditorSummary(res.aiSummary);
         if (res.newsValueScore) setEditorScore(res.newsValueScore);
         if (res.imageThumbnail) setEditorHeroImage(res.imageThumbnail);
+        if (res.bodyImage) setEditorBodyImage(res.bodyImage);
         if (res.aiContent) {
           const paras = res.aiContent.split(/\n+/).map(p => p.trim()).filter(p => p.length > 10);
           if (paras.length > 0) setEditorParagraphs(paras);
         }
       }
+      // Step 2: Approve if requested
       if (andPublish) {
-        await apiCall(`/editorial/approve/${activeDraft.id}`, apiKey, "POST");
-        onStatsChange();
-        closeEditor();
+        try {
+          await apiCall(`/editorial/approve/${activeDraft.id}`, apiKey, "POST");
+          onStatsChange();
+          closeEditor();
+        } catch (approveErr) {
+          const msg = approveErr?.message || "Could not publish";
+          alert(`⚠️ Publish blocked: ${msg}\n\nThe AI regenerated the article but the source page had no second unique image available. Try a different article.`);
+        }
       }
-    } catch (_) {}
+    } catch (err) {
+      alert(`Re-AI failed: ${err?.message || "Unknown error. Check your Groq API key."}`);
+    }
     andPublish ? setReAiPublishingEditor(false) : setReAiingEditor(false);
   };
 
@@ -286,12 +301,8 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
   };
 
   // ─── Programmatic Gatekeeper Checklist & Uniqueness Offset calculations ───────
-  const activeHeroImage = editorHeroImage || getFallbackImage(editorCategory, activeDraft?.id);
-  const activeBodyImage = useMemo(() => {
-    if (!activeDraft) return "";
-    // Offset unique body image calculation based on slug hash sequentially to prevent duplicate images
-    return getFallbackImage(editorCategory, activeDraft.id, activeDraft.aiTags || [], activeHeroImage);
-  }, [editorCategory, activeDraft, activeHeroImage]);
+  const activeHeroImage = editorHeroImage;
+  const activeBodyImage = editorBodyImage;
 
   // Programmatic checklist requirements
   const checklist = useMemo(() => {
@@ -490,6 +501,16 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
                   value={editorHeroImage}
                   onChange={(e) => setEditorHeroImage(e.target.value)}
                   placeholder="Insert landscape image URL..."
+                  className="w-full bg-[#121216] border border-white/5 focus:border-[#ff2a6d]/50 focus:outline-none text-xs text-[#f9f9fa] rounded-lg px-4 py-2.5 transition-all"
+                />
+              </div>
+
+              <div>
+                <label className="text-[9px] font-bold uppercase tracking-wider text-zinc-500 block mb-1.5">Body Image URL</label>
+                <input
+                  value={editorBodyImage}
+                  onChange={(e) => setEditorBodyImage(e.target.value)}
+                  placeholder="Insert landscape body image URL..."
                   className="w-full bg-[#121216] border border-white/5 focus:border-[#ff2a6d]/50 focus:outline-none text-xs text-[#f9f9fa] rounded-lg px-4 py-2.5 transition-all"
                 />
               </div>
@@ -821,11 +842,11 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
                     {/* Thumbnail */}
                     <div className="group/thumb relative flex-shrink-0 w-24 h-16 rounded-lg overflow-hidden border border-white/5">
                       <img
-                        src={thumb || getFallbackImage(a.category, a.id)}
+                        src={thumb || PLACEHOLDER_IMAGE}
                         alt=""
                         className="w-full h-full object-cover transition-all"
                         onError={(e) => {
-                          e.target.src = getFallbackImage(a.category, a.id);
+                          e.target.src = PLACEHOLDER_IMAGE;
                         }}
                       />
                     </div>

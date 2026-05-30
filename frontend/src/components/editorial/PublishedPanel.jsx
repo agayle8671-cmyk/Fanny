@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
-import { apiCall, CATEGORIES } from "./api";
-import { getFallbackImage } from "../../lib/fallback-image";
+import { apiCall, CATEGORIES, PLACEHOLDER_IMAGE } from "./api";
 import { Trash2, ShieldAlert, Star, ExternalLink, RefreshCw } from "lucide-react";
 
 export default function PublishedPanel({ apiKey }) {
@@ -107,7 +106,7 @@ export default function PublishedPanel({ apiKey }) {
         )}
 
         {articles.map((a) => {
-          const thumb = a.imageThumbnail || a.videoThumbnail || getFallbackImage(a.category, a.id);
+          const thumb = a.imageThumbnail || a.videoThumbnail || PLACEHOLDER_IMAGE;
           const liveUrl = a.slug ? `/news/${a.slug}` : a.sourceUrl;
 
           return (
@@ -127,7 +126,7 @@ export default function PublishedPanel({ apiKey }) {
                   alt={a.title}
                   className="w-full h-full object-cover group-hover:scale-105 transition-all duration-500"
                   onError={(e) => {
-                    e.target.src = getFallbackImage(a.category, a.id);
+                    e.target.src = PLACEHOLDER_IMAGE;
                   }}
                 />
                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center text-white">
