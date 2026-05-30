@@ -396,7 +396,7 @@ async def _fetch_article_images(url: str, existing_thumb: Optional[str] = None) 
         return (_upgrade_to_hd(existing_thumb) if existing_thumb else None, None)
 
 
-async def run_scraper_pipeline() -> str:
+async def run_scraper_pipeline(is_manual: bool = False) -> str:
     """Main scrape pipeline. Returns run_id."""
     global _scraper_running, _last_run_id
     if _scraper_running:
@@ -429,18 +429,18 @@ async def run_scraper_pipeline() -> str:
         sources = await db.scraper_sources.find({"isActive": True}, {"_id": 0}).to_list(100)
         if not sources:
             sources = DEFAULT_SOURCES
-        logger.info(f"[Scraper] Starting run {run_id} — {len(sources)} sources")
+        logger.info(f"[Scraper] Starting run {run_id} (manual={is_manual}) — {len(sources)} sources")
 
         for src in sources:
-            if articles_new >= DAILY_ARTICLE_CAP:
-                logger.info(f"[Scraper] Daily cap of {DAILY_ARTICLE_CAP} reached — stopping")
+            if not is_manual and articles_new >= DAILY_ARTICLE_CAP:
+                logger.info(f"[Scraper] Daily cap of {DAILY_ARTICLE_CAP} reached — stopping (auto run)")
                 break
             try:
                 items = await _fetch_rss(src)
                 articles_found += len(items)
 
                 for item in items[:src.get("quota", 5)]:
-                    if articles_new >= DAILY_ARTICLE_CAP:
+                    if not is_manual and articles_new >= DAILY_ARTICLE_CAP:
                         break
                     title   = item["title"]
                     excerpt = item.get("excerpt") or ""
@@ -1316,7 +1316,7 @@ async def scraper_status(_: bool = Depends(require_editorial_key)):
 async def trigger_scraper(background_tasks: BackgroundTasks, _: bool = Depends(require_editorial_key)):
     if _scraper_running:
         return {"message": "Scraper already running", "runId": _last_run_id}
-    background_tasks.add_task(run_scraper_pipeline)
+    background_tasks.add_task(run_scraper_pipeline, True)
     return {"message": "Scrape triggered"}
 
 # ── Legacy Groq proxy (existing EditorialDesk manual parsing) ─────────────────
