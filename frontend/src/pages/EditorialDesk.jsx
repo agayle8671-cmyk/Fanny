@@ -1,15 +1,16 @@
 // EditorialDesk.jsx — Dark-Mode Administrative Control Center
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { apiCall } from "../components/editorial/api";
+import { RefreshCw } from "lucide-react";
 
-// Decomposed panels imports
-import QueuePanel from "../components/editorial/QueuePanel";
-import PublishedPanel from "../components/editorial/PublishedPanel";
-import ScraperControlPanel from "../components/editorial/ScraperControlPanel";
-import SourcesPanel from "../components/editorial/SourcesPanel";
-import SystemConfigPanel from "../components/editorial/SystemConfigPanel";
-import TimelinePanel from "../components/editorial/TimelinePanel";
-import ManualEntryPanel from "../components/editorial/ManualEntryPanel";
+// Lazy load the decomposed panels to minimize bundle size & optimize main-thread responsiveness
+const QueuePanel = lazy(() => import("../components/editorial/QueuePanel"));
+const PublishedPanel = lazy(() => import("../components/editorial/PublishedPanel"));
+const ScraperControlPanel = lazy(() => import("../components/editorial/ScraperControlPanel"));
+const SourcesPanel = lazy(() => import("../components/editorial/SourcesPanel"));
+const SystemConfigPanel = lazy(() => import("../components/editorial/SystemConfigPanel"));
+const TimelinePanel = lazy(() => import("../components/editorial/TimelinePanel"));
+const ManualEntryPanel = lazy(() => import("../components/editorial/ManualEntryPanel"));
 
 const STORAGE_KEY = "lv_editorial_key";
 const DEFAULT_KEY = "LEONIDA2026";
@@ -283,13 +284,20 @@ export default function EditorialDesk() {
 
           {/* Dynamic Component Panelling mount */}
           <div className="flex-1 overflow-hidden">
-            {tab === "queue"     && <QueuePanel apiKey={apiKey} stats={stats} onStatsChange={loadStats} />}
-            {tab === "published" && <PublishedPanel apiKey={apiKey} />}
-            {tab === "scraper"   && <ScraperControlPanel apiKey={apiKey} />}
-            {tab === "sources"   && <SourcesPanel apiKey={apiKey} />}
-            {tab === "site"      && <SystemConfigPanel apiKey={apiKey} />}
-            {tab === "timeline"  && <TimelinePanel apiKey={apiKey} />}
-            {tab === "manual"    && <ManualEntryPanel apiKey={apiKey} />}
+            <Suspense fallback={
+              <div className="h-full flex items-center justify-center bg-[#050505] text-zinc-500 text-xs">
+                <RefreshCw size={24} className="animate-spin text-[#ff2a6d] mb-3" />
+                <span className="ml-2">Loading Command Panel...</span>
+              </div>
+            }>
+              {tab === "queue"     && <QueuePanel apiKey={apiKey} stats={stats} onStatsChange={loadStats} />}
+              {tab === "published" && <PublishedPanel apiKey={apiKey} />}
+              {tab === "scraper"   && <ScraperControlPanel apiKey={apiKey} />}
+              {tab === "sources"   && <SourcesPanel apiKey={apiKey} />}
+              {tab === "site"      && <SystemConfigPanel apiKey={apiKey} />}
+              {tab === "timeline"  && <TimelinePanel apiKey={apiKey} />}
+              {tab === "manual"    && <ManualEntryPanel apiKey={apiKey} />}
+            </Suspense>
           </div>
         </div>
       </div>
