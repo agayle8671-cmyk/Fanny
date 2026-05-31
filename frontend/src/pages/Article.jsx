@@ -297,9 +297,28 @@ const Article = () => {
             }
             return null;
           })}
+          {/* Source Attribution */}
+          {article.sourceUrl && (
+            <div className="mt-16 p-5 rounded-xl bg-zinc-950/40 border border-white/5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 backdrop-blur-sm">
+              <div className="flex items-center gap-2">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#FF2A6D] animate-pulse" />
+                <span className="text-[11px] uppercase tracking-[0.2em] text-zinc-400 font-display">
+                  Original Coverage Sourced From
+                </span>
+              </div>
+              <a
+                href={article.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center text-xs font-semibold uppercase tracking-[0.15em] text-[#FF2A6D] hover:text-[#05D9E8] transition duration-300"
+              >
+                {article.sourceName || "Original Publisher"} &rarr;
+              </a>
+            </div>
+          )}
 
           {/* Tags + inline share */}
-          <div className="mt-20 pt-10 border-t border-white/10 space-y-8">
+          <div className="mt-16 pt-10 border-t border-white/10 space-y-8">
             {article.tags && (
               <div className="flex flex-wrap gap-2">
                 <span className="text-[10px] uppercase tracking-[0.3em] text-zinc-500 mr-2 self-center">

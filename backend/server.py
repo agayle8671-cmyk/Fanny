@@ -824,6 +824,8 @@ RULES:
 - Length of summary: 3-5 sentences. 80-160 words. Enough to give real context, not just tease.
 - Do NOT open the summary with "The article", "According to", or a restatement of the headline.
 - DO contextualise within the wider GTA VI picture where the source permits it.
+- Frame the summary as an editorial analysis of news reported by other outlets. Do NOT claim The Leonida Vice broke this news.
+- Explicitly attribute quotes, reports, or key findings to the original Source (e.g., "according to [Source]", "first reported by [Source]") rather than presenting them as your own exclusive discovery.
 - After the summary, on a new line: CONFIDENCE: high|medium|low
 - Then on a new line: TAGS: tag1, tag2, tag3, tag4"""
 
@@ -843,7 +845,9 @@ RULES:
 - Prose only — no headers, bullets, or markdown within the article.
 - Present tense throughout.
 - Never fabricate details not in the source.
-- Do not restate the headline as the opening sentence."""
+- Do not restate the headline as the opening sentence.
+- Frame the piece as a professional staff writer analyzing external reports. Do NOT claim to have broken the story or conducted primary investigative reporting.
+- Explicitly attribute direct quotes, exclusive details, or major claims to the original Source (e.g., "speaking to [Source]", "as reported by [Source]") so the reader knows where the information originated."""
 
 async def _groq_chat(messages: list, max_tokens: int = 300, model: str = "llama-3.3-70b-versatile") -> Optional[str]:
     """Call Groq API. Returns content string or None on failure."""
