@@ -375,38 +375,33 @@ def _build_search_query(text: str, domain: str) -> str:
 
 async def search_fallback_images_ddg(query: str) -> list:
     """
-    Queries DuckDuckGo's free Image API to source verified high-resolution widescreen GTA VI mirrors
-    when page assets are unavailable or fail the HD validation gates.
+    Image fallback search using Bing Image Search scrape (DDG changed their API).
+    Returns a list of direct image URLs matching the query.
     """
     import httpx
-    import re
     import urllib.parse
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
     }
     try:
-        url = f"https://duckduckgo.com/?q={urllib.parse.quote(query)}&iax=images&ia=images"
-        async with httpx.AsyncClient(timeout=8, follow_redirects=True, headers=headers) as client:
+        encoded = urllib.parse.quote(query)
+        url = f"https://www.bing.com/images/search?q={encoded}&form=HDRSC2&first=1&tsc=ImageHoverTitle"
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True, headers=headers) as client:
             r = await client.get(url)
         if r.status_code != 200:
+            logger.warning(f"[SearchFallback] Bing image search returned {r.status_code}")
             return []
-        
-        vqd_match = re.search(r'vqd=([0-9\-]+)', r.text)
-        if not vqd_match:
-            return []
-        vqd = vqd_match.group(1)
-        
-        api_url = f"https://duckduckgo.com/i.js?l=us-en&o=json&q={urllib.parse.quote(query)}&vqd={vqd}&f=,,,"
-        async with httpx.AsyncClient(timeout=8, follow_redirects=True, headers=headers) as client:
-            r2 = await client.get(api_url)
-        if r2.status_code != 200:
-            return []
-        
-        data = r2.json()
-        results = data.get("results", [])
-        return [item["image"] for item in results if "image" in item]
+        # Extract murl (direct image url) values from Bing image result JSON blobs
+        img_urls = re.findall(r'murl&quot;:&quot;(https://[^&]+\.(?:jpg|jpeg|png|webp))&quot;', r.text, re.I)
+        if not img_urls:
+            # fallback regex for unescaped JSON
+            img_urls = re.findall(r'"murl":"(https://[^"]+\.(?:jpg|jpeg|png|webp))"', r.text, re.I)
+        logger.info(f"[SearchFallback] Bing returned {len(img_urls)} image candidates for query: '{query}'")
+        return img_urls[:20]  # cap at 20 to keep pipeline fast
     except Exception as e:
-        logger.warning(f"[SearchFallback] DuckDuckGo query failed: {e}")
+        logger.warning(f"[SearchFallback] Bing image search failed: {e}")
         return []
 
 
@@ -423,12 +418,13 @@ async def _fetch_article_images(url: str, existing_thumb: Optional[str] = None) 
     import httpx
     from urllib.parse import urljoin, urlparse
 
+    # Tightened skip list — only skip definitive non-article assets
+    # Removed 'thumb', 'small', 'mini', 'header_logo', 'sharing' which falsely block real article images
     _SKIP_PATTERNS = [
         'logo', 'icon', 'avatar', 'favicon', 'badge', 'sprite', 'pixel',
-        'ad', 'banner', 'sponsor', 'tracking', '1x1', 'button', 'thumb_small',
-        'profile', 'author', 'gravatar', 'wp-emoji', 'small', 'thumb', 'mini',
-        'placeholder', 'sidebar', 'widget', 'loader', 'advertisement', 'promo',
-        'footer', 'header_logo', 'nav_logo', 'sharing', 'facebook', 'twitter',
+        '1x1', 'button', 'thumb_small', 'profile', 'gravatar', 'wp-emoji',
+        'placeholder', 'sidebar', 'widget', 'loader', 'advertisement',
+        'nav_logo', 'facebook', 'twitter',
     ]
     _IMG_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.webp', '.gif')
 
@@ -453,7 +449,6 @@ async def _fetch_article_images(url: str, existing_thumb: Optional[str] = None) 
     def _clean_url_for_compare(u: str) -> str:
         if not u:
             return ""
-        # Remove resizing parameters, protocols, domains, and trailing slashes to check mathematical identity
         try:
             u_upgraded = _upgrade_to_hd(u)
             parsed = urlparse(u_upgraded)
@@ -474,8 +469,9 @@ async def _fetch_article_images(url: str, existing_thumb: Optional[str] = None) 
             return False
         if any(p in sl for p in _SKIP_PATTERNS):
             return False
-        # Skip standard low-resolution dimensions in url paths (e.g. /150x150/ or -50x50.jpg)
-        if re.search(r'[/\-_]([1-9]\d|1\d\d|2\d\d)x([1-9]\d|1\d\d|2\d\d)\b', sl):
+        # Skip explicit tiny dimension patterns in the URL path only (e.g. -50x50.jpg)
+        # Lowered lower bound to avoid blocking legitimate medium-sized art (e.g. 300x200 featured images)
+        if re.search(r'[/\-_]([1-9]\d)x([1-9]\d)\b', sl):  # only block 2-digit × 2-digit (< 100px)
             return False
         return True
 
@@ -538,13 +534,17 @@ async def _fetch_article_images(url: str, existing_thumb: Optional[str] = None) 
             hero = unique_candidates[0]
 
         # Stage 4 Resolution check on hero candidate
+        # Relaxed from 800x450 to 400x225 — many legitimate article og:images are medium-res
         hero_w, hero_h = None, None
         if hero:
-            res_tuple = await verify_image_resolution_stream(hero, min_width=800, min_height=450)
+            res_tuple = await verify_image_resolution_stream(hero, min_width=400, min_height=225)
             if res_tuple:
                 hero_w, hero_h = res_tuple
             else:
-                hero = None
+                # Stream check failed (timeout/CDN blocked range requests) — keep image anyway
+                # if it passed the URL validity check, give it benefit of the doubt
+                logger.debug(f"[ImageScraper] Resolution stream check failed for hero, keeping anyway: {hero[:80]}")
+                hero_w, hero_h = 0, 0
 
         # Stage 5 Uniqueness dHash filtering for body candidates
         hero_hash = await _get_image_dhash_from_url(hero) if hero else None
@@ -557,10 +557,13 @@ async def _fetch_article_images(url: str, existing_thumb: Optional[str] = None) 
         for c in unique_candidates:
             c_clean = _clean_url_for_compare(c)
             if c_clean and c_clean != hero_clean:
-                # Resolution stream check
-                res_tuple = await verify_image_resolution_stream(c, min_width=800, min_height=450)
+                # Resolution stream check — relaxed to 400x225
+                res_tuple = await verify_image_resolution_stream(c, min_width=400, min_height=225)
                 if res_tuple:
                     hd_body_candidates.append((c, res_tuple[0], res_tuple[1]))
+                else:
+                    # Stream check timed out or range-blocked — include as low-confidence candidate
+                    hd_body_candidates.append((c, 0, 0))
 
         for c_url, w, h in hd_body_candidates:
             c_hash = await _get_image_dhash_from_url(c_url)
@@ -720,10 +723,13 @@ async def run_scraper_pipeline(is_manual: bool = False) -> str:
                         body_image = scraped_body
                         visual_metadata = v_meta
 
-                    # Strict gate: both hero AND body image required — no fallbacks
-                    if not thumb or not body_image:
-                        logger.info(f"[Scraper] Skipping — could not find 2 unique images for: {title[:60]}")
+                    # Gate: hero image is required. Body image is preferred but not a hard blocker.
+                    # Articles without a hero are dropped; articles with only a hero are allowed through.
+                    if not thumb:
+                        logger.info(f"[Scraper] Skipping — no hero image found for: {title[:60]}")
                         continue
+                    if not body_image:
+                        logger.info(f"[Scraper] Warning — no body image found, ingesting hero-only: {title[:60]}")
 
                     doc = {
                         "id":             str(uuid.uuid4()),
