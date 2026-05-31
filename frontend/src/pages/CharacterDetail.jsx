@@ -23,7 +23,7 @@ const CharacterDetail = () => {
             className="w-full h-full object-cover"
           />
           <div className="absolute top-32 right-6 md:right-12 z-20 bg-[#050505]/70 backdrop-blur-md border border-[#FF2A6D]/30 px-3 py-1 rounded text-[9px] uppercase tracking-[0.2em] font-semibold text-zinc-300">
-            Artist's Interpretation
+            Official Screenshot
           </div>
         </div>
         <div className="absolute inset-0 z-10 hero-overlay" />
@@ -112,6 +112,22 @@ const CharacterDetail = () => {
             </blockquote>
           )}
 
+          {character.lore && character.lore.length > 0 && (
+            <div className="border-t border-white/5 pt-10">
+              <h2 className="font-display uppercase text-2xl md:text-3xl text-white mb-6">
+                Intel Dossier
+              </h2>
+              <ul className="space-y-4">
+                {character.lore.map((entry, i) => (
+                  <li key={i} className="flex gap-4 items-start">
+                    <span className="mt-1.5 flex-none w-1.5 h-1.5 rounded-full bg-[#FF2A6D]" />
+                    <p className="text-zinc-300 text-sm md:text-base leading-relaxed">{entry}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {related.length > 0 && (
             <div className="border-t border-white/5 pt-10">
               <p className="text-[10px] uppercase tracking-[0.3em] text-zinc-500 font-semibold mb-6">
@@ -131,7 +147,7 @@ const CharacterDetail = () => {
                       className="absolute inset-0 w-full h-full object-cover transition duration-500"
                     />
                     <div className="absolute top-2 right-2 z-20 bg-[#050505]/75 backdrop-blur-sm border border-white/5 px-1.5 py-0.5 rounded text-[7px] uppercase tracking-[0.15em] font-semibold text-zinc-400">
-                      Artist Interpretation
+                      Official
                     </div>
                     <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
                     <div className="absolute bottom-0 p-3">
