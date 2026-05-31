@@ -1791,10 +1791,15 @@ async def editorial_delete_article(article_id: str, _: bool = Depends(require_ed
 # ── Patch article (category / summary edit) ───────────────────────────────────
 @api_router.patch("/editorial/article/{article_id}")
 async def patch_article(article_id: str, body: dict, _: bool = Depends(require_editorial_key)):
-    allowed = {"category", "aiSummary", "title", "heroImage", "imageThumbnail", "newsValueScore", "aiContent"}
+    allowed = {"category", "aiSummary", "title", "heroImage", "imageThumbnail", "bodyImage", "newsValueScore", "aiContent"}
     updates = {k: v for k, v in body.items() if k in allowed}
     if not updates:
         raise HTTPException(status_code=400, detail="No valid fields")
+    # Keep heroImage and imageThumbnail in sync — if either is supplied, mirror to the other
+    if "heroImage" in updates and "imageThumbnail" not in updates:
+        updates["imageThumbnail"] = updates["heroImage"]
+    elif "imageThumbnail" in updates and "heroImage" not in updates:
+        updates["heroImage"] = updates["imageThumbnail"]
     await db.scraped_articles.update_one({"id": article_id}, {"$set": updates})
     return {"success": True}
 
