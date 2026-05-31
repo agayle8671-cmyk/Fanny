@@ -21,7 +21,10 @@ db = client[os.environ['DB_NAME']]
 
 INGEST_TOKEN   = os.environ.get('INGEST_TOKEN', '')
 EDITORIAL_KEY  = os.environ.get('EDITORIAL_KEY', 'LEONIDA2026')
-GROQ_API_KEY   = os.environ.get('GROQ_API_KEY', "1xcjd03o4WebTyPKVSTFkiruYF3bydGWVIPWhD6cs5Nmn0DRUJll_ksg"[::-1])
+# GROQ_API_KEY: set via Railway environment variable named GROQ_API_KEY
+# If env var is missing or blank, falls back to the hardcoded key below
+_groq_env = os.environ.get('GROQ_API_KEY', '').strip()
+GROQ_API_KEY   = _groq_env if _groq_env else "1xcjd03o4WebTyPKVSTFkiruYF3bydGWVIPWhD6cs5Nmn0DRUJll_ksg"[::-1]
 
 app = FastAPI(title="Leonida Vice API")
 api_router = APIRouter(prefix="/api")
@@ -2801,6 +2804,7 @@ async def startup():
                 upsert=True,
             )
         logger.info(f"[Startup] Seeded {len(DEFAULT_SOURCES)} sources")
+        logger.info(f"[Startup] Groq key loaded — prefix: {GROQ_API_KEY[:12]}... source: {'env' if _groq_env else 'hardcoded fallback'}")
     except Exception as e:
         logger.error(f"[Startup] Source seeding failed: {e}")
 
