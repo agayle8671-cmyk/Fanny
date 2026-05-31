@@ -1668,16 +1668,35 @@ async def approve_article(
     if not art:
         raise HTTPException(status_code=404, detail="Not found")
 
-    # Run remediation to guarantee 100% valid, accessible, unique hero + body images
-    source_url = art.get("sourceUrl") or art.get("source_url", "")
-    hero, body, visual_metadata = await validate_and_remediate_images(
-        article_id,
-        art.get("imageThumbnail") or art.get("heroImage") or art.get("videoThumbnail"),
-        art.get("bodyImage"),
-        source_url
-    )
+    # ── Image remediation (crash-safe) ──────────────────────────────────────
+    hero = art.get("imageThumbnail") or art.get("heroImage") or art.get("videoThumbnail")
+    body = art.get("bodyImage")
+    visual_metadata = art.get("visual_metadata")
 
-    # Save finalized remediated images
+    try:
+        source_url = art.get("sourceUrl") or art.get("source_url", "")
+        hero, body, visual_metadata = await validate_and_remediate_images(
+            article_id, hero, body, source_url
+        )
+    except Exception as e:
+        logger.warning(f"[Approve] Remediation crashed for {article_id}: {e}")
+
+    # ── ABSOLUTE FINAL GUARD — belt-and-suspenders pool assignment ──────────
+    # No matter what happened above, guarantee both fields are valid HTTP URLs.
+    h_idx = _hash_id(article_id) % len(GTA6_POOL)
+    if not hero or not isinstance(hero, str) or not hero.startswith("http"):
+        hero = GTA6_POOL[h_idx]
+        logger.warning(f"[Approve] FINAL GUARD: hero was missing, assigned pool[{h_idx}]")
+    if not body or not isinstance(body, str) or not body.startswith("http"):
+        b_idx = (h_idx + 1) % len(GTA6_POOL)
+        body = GTA6_POOL[b_idx]
+        logger.warning(f"[Approve] FINAL GUARD: body was missing, assigned pool[{b_idx}]")
+    # Ensure hero ≠ body
+    if hero == body:
+        b_idx = (h_idx + 2) % len(GTA6_POOL)
+        body = GTA6_POOL[b_idx]
+
+    # Save finalized images
     await db.scraped_articles.update_one(
         {"id": article_id},
         {"$set": {
@@ -1690,7 +1709,6 @@ async def approve_article(
     art["imageThumbnail"] = hero
     art["heroImage"] = hero
     art["bodyImage"] = body
-    art["visual_metadata"] = visual_metadata
 
     now_iso = datetime.now(timezone.utc).isoformat()
     # Run AI summarization inline before publishing if not yet processed
@@ -1702,9 +1720,17 @@ async def approve_article(
         except Exception as e:
             logger.warning(f"[Editorial] AI pre-summarize failed for {article_id}: {e}")
 
+    # ── Publish — images are 100% guaranteed at this point ────────────────
     await db.scraped_articles.update_one(
         {"id": article_id},
-        {"$set": {"status": "published", "approvedAt": now_iso, "publishedAt": art.get("publishedAt") or now_iso}}
+        {"$set": {
+            "status": "published",
+            "approvedAt": now_iso,
+            "publishedAt": art.get("publishedAt") or now_iso,
+            "imageThumbnail": hero,
+            "heroImage": hero,
+            "bodyImage": body,
+        }}
     )
     return {"success": True, "title": art.get("title", "")}
 
@@ -1778,7 +1804,21 @@ async def _bulk_approve_background(articles: list):
             await asyncio.sleep(0.6)
         except Exception as e:
             logger.warning(f"[Bulk approve] Failed {art.get('id')}: {e}")
-            await db.scraped_articles.update_one({"id": art.get('id', '')}, {"$set": {"status": "published", "approvedAt": now_iso}})
+            # NEVER publish without images — force-assign from pool on ANY failure
+            aid = art.get('id', '')
+            h_idx = _hash_id(aid) % len(GTA6_POOL)
+            b_idx = (h_idx + 1) % len(GTA6_POOL)
+            fallback_hero = art.get("imageThumbnail") or art.get("heroImage") or GTA6_POOL[h_idx]
+            fallback_body = art.get("bodyImage") or GTA6_POOL[b_idx]
+            if not fallback_hero or not fallback_hero.startswith("http"):
+                fallback_hero = GTA6_POOL[h_idx]
+            if not fallback_body or not fallback_body.startswith("http"):
+                fallback_body = GTA6_POOL[b_idx]
+            await db.scraped_articles.update_one({"id": aid}, {"$set": {
+                "status": "published", "approvedAt": now_iso,
+                "imageThumbnail": fallback_hero, "heroImage": fallback_hero,
+                "bodyImage": fallback_body
+            }})
 
 # ── Bulk reject ───────────────────────────────────────────────────────────────
 @api_router.post("/editorial/bulk-reject")
@@ -2042,19 +2082,38 @@ async def reprocess_article(article_id: str, body: dict = {}, _: bool = Depends(
     logger.info(f"[Reprocess] Complete for {article_id} — hero={'set' if final_hero else 'missing'}, body={'set' if final_body else 'missing'}")
 
     # ── Step 4b: Final safety net — remediate any remaining gaps ──────────────
-    # If internet-wide search still couldn't find hero or body, GTA6_POOL fills them.
-    source_url = art.get("sourceUrl") or art.get("source_url", "")
-    rem_hero, rem_body, rem_meta = await validate_and_remediate_images(
-        article_id,
-        updates.get("imageThumbnail") or updates.get("heroImage"),
-        updates.get("bodyImage"),
-        source_url  # don't re-scrape here; remediation knows when to skip
-    )
-    updates["imageThumbnail"] = rem_hero
-    updates["heroImage"] = rem_hero
-    updates["bodyImage"] = rem_body
-    if rem_meta:
-        updates["visual_metadata"] = rem_meta
+    try:
+        source_url = art.get("sourceUrl") or art.get("source_url", "")
+        rem_hero, rem_body, rem_meta = await validate_and_remediate_images(
+            article_id,
+            updates.get("imageThumbnail") or updates.get("heroImage") or art.get("imageThumbnail") or art.get("heroImage"),
+            updates.get("bodyImage") or art.get("bodyImage"),
+            source_url
+        )
+        updates["imageThumbnail"] = rem_hero
+        updates["heroImage"] = rem_hero
+        updates["bodyImage"] = rem_body
+        if rem_meta:
+            updates["visual_metadata"] = rem_meta
+    except Exception as e:
+        logger.warning(f"[Reprocess] Remediation crashed for {article_id}: {e}")
+
+    # ── ABSOLUTE FINAL GUARD — pool fallback no matter what ───────────────
+    h_idx = _hash_id(article_id) % len(GTA6_POOL)
+    cur_hero = updates.get("imageThumbnail") or updates.get("heroImage")
+    cur_body = updates.get("bodyImage")
+    if not cur_hero or not isinstance(cur_hero, str) or not cur_hero.startswith("http"):
+        cur_hero = GTA6_POOL[h_idx]
+        logger.warning(f"[Reprocess] FINAL GUARD: hero missing, assigned pool[{h_idx}]")
+    if not cur_body or not isinstance(cur_body, str) or not cur_body.startswith("http"):
+        b_idx = (h_idx + 1) % len(GTA6_POOL)
+        cur_body = GTA6_POOL[b_idx]
+        logger.warning(f"[Reprocess] FINAL GUARD: body missing, assigned pool[{b_idx}]")
+    if cur_hero == cur_body:
+        cur_body = GTA6_POOL[(h_idx + 2) % len(GTA6_POOL)]
+    updates["imageThumbnail"] = cur_hero
+    updates["heroImage"] = cur_hero
+    updates["bodyImage"] = cur_body
 
     # ── Step 5: Persist ───────────────────────────────────────────────────────
     await db.scraped_articles.update_one({"id": article_id}, {"$set": updates})
@@ -2066,9 +2125,9 @@ async def reprocess_article(article_id: str, body: dict = {}, _: bool = Depends(
         "aiContent": updates.get("aiContent"),
         "aiTags": updates.get("aiTags"),
         "newsValueScore": updates.get("newsValueScore"),
-        "imageThumbnail": updates.get("imageThumbnail"),
-        "heroImage": updates.get("heroImage"),
-        "bodyImage": updates.get("bodyImage"),
+        "imageThumbnail": updates["imageThumbnail"],
+        "heroImage": updates["heroImage"],
+        "bodyImage": updates["bodyImage"],
         "visual_metadata": updates.get("visual_metadata"),
     }
 
