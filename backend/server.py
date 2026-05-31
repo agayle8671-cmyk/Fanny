@@ -710,26 +710,14 @@ async def run_scraper_pipeline(is_manual: bool = False) -> str:
                     if existing:
                         continue
 
-                    # Fetch hero + unique body image from source page
-                    thumb = item.get("image_thumbnail")
+                    # ── SCRAPE PHASE: Fast ingest — no image hunting here. ──────────────────
+                    # Image finding happens in Re-AI (reprocess endpoint) so the scraper
+                    # stays fast and accepts ALL passing articles without image gates.
+                    # Just save whatever thumbnail came from the RSS feed.
+                    thumb = item.get("image_thumbnail") or item.get("video_thumbnail")
                     body_image = None
                     visual_metadata = None
-
-                    if not item.get("is_video"):
-                        scraped_hero, scraped_body, v_meta = await _fetch_article_images(
-                            item["source_url"], existing_thumb=thumb
-                        )
-                        thumb = scraped_hero or thumb
-                        body_image = scraped_body
-                        visual_metadata = v_meta
-
-                    # Gate: hero image is required. Body image is preferred but not a hard blocker.
-                    # Articles without a hero are dropped; articles with only a hero are allowed through.
-                    if not thumb:
-                        logger.info(f"[Scraper] Skipping — no hero image found for: {title[:60]}")
-                        continue
-                    if not body_image:
-                        logger.info(f"[Scraper] Warning — no body image found, ingesting hero-only: {title[:60]}")
+                    logger.info(f"[Scraper] Ingesting (images deferred to Re-AI): {title[:70]}")
 
                     doc = {
                         "id":             str(uuid.uuid4()),
@@ -1361,27 +1349,219 @@ async def patch_article(article_id: str, body: dict, _: bool = Depends(require_e
 # ── AI Reprocess ──────────────────────────────────────────────────────────────
 @api_router.post("/editorial/reprocess/{article_id}")
 async def reprocess_article(article_id: str, body: dict = {}, _: bool = Depends(require_editorial_key)):
+    """
+    Re-AI summarize + full internet-wide image hunt.
+    This is the ONLY place images are sourced — not during scraping.
+    Finds 2 unique images (hero + body) from across the internet,
+    deduplicating against ALL images already used in the database.
+    """
     groq_key = body.get("groqKey") if body else None
     art = await db.scraped_articles.find_one({"id": article_id}, {"_id": 0})
     if not art:
         raise HTTPException(status_code=404, detail="Not found")
 
+    # ── Step 1: Run AI summarize ───────────────────────────────────────────────
     updates = await ai_summarize(art, groq_key=groq_key or GROQ_API_KEY or None)
 
-    # If bodyImage is missing (old article pre-dating this rule), scrape it now
-    if not art.get("bodyImage"):
-        source_url = art.get("sourceUrl") or art.get("source_url", "")
-        if source_url:
-            existing_thumb = art.get("imageThumbnail") or art.get("videoThumbnail")
-            try:
-                _, scraped_body, visual_metadata = await _fetch_article_images(source_url, existing_thumb=existing_thumb)
-                if scraped_body:
-                    updates["bodyImage"] = scraped_body
-                    updates["visual_metadata"] = visual_metadata
-                    logger.info(f"[Reprocess] Backfilled bodyImage for {article_id}")
-            except Exception as e:
-                logger.warning(f"[Reprocess] Could not scrape bodyImage for {article_id}: {e}")
+    # ── Step 2: Build set of ALL image URLs already used across the entire DB ──
+    # This prevents re-using any hero or body image from any other article.
+    logger.info(f"[Reprocess] Building global image dedup index for {article_id}")
+    used_image_basenames: set = set()
+    try:
+        from urllib.parse import urlparse
+        import os as _os
+        cursor = db.scraped_articles.find(
+            {"id": {"$ne": article_id}},
+            {"_id": 0, "imageThumbnail": 1, "heroImage": 1, "bodyImage": 1}
+        )
+        async for doc in cursor:
+            for field in ("imageThumbnail", "heroImage", "bodyImage"):
+                url = doc.get(field)
+                if url:
+                    try:
+                        path = urlparse(url).path
+                        bn = _os.path.basename(path).lower().split("?")[0]
+                        # Strip WordPress resize suffixes before comparing
+                        bn = re.sub(r'-(\d+)x(\d+)(?=\.[a-zA-Z0-9]+$)', '', bn)
+                        if bn:
+                            used_image_basenames.add(bn)
+                    except Exception:
+                        pass
+        logger.info(f"[Reprocess] Global dedup index: {len(used_image_basenames)} unique image basenames in use")
+    except Exception as e:
+        logger.warning(f"[Reprocess] Could not build dedup index: {e}")
 
+    def _basename(url: str) -> str:
+        """Extract cleaned basename for dedup comparison."""
+        if not url:
+            return ""
+        try:
+            from urllib.parse import urlparse
+            import os as _os
+            path = urlparse(url).path
+            bn = _os.path.basename(path).lower().split("?")[0]
+            bn = re.sub(r'-(\d+)x(\d+)(?=\.[a-zA-Z0-9]+$)', '', bn)
+            return bn
+        except Exception:
+            return ""
+
+    def _is_globally_unique(url: str) -> bool:
+        """Returns True if this image basename has NOT been used in any other article."""
+        bn = _basename(url)
+        return bool(bn) and bn not in used_image_basenames
+
+    # ── Step 3: Internet-wide image hunt ──────────────────────────────────────
+    source_url = art.get("sourceUrl") or art.get("source_url", "")
+    article_title = updates.get("title") or art.get("title", "")
+    existing_thumb = art.get("imageThumbnail") or art.get("heroImage") or art.get("videoThumbnail")
+
+    logger.info(f"[Reprocess] Starting internet image hunt for: {article_title[:70]}")
+
+    # ── 3a. Scrape the article source page first ───────────────────────────────
+    page_hero, page_body, v_meta = None, None, None
+    if source_url:
+        try:
+            page_hero, page_body, v_meta = await _fetch_article_images(source_url, existing_thumb=existing_thumb)
+            logger.info(f"[Reprocess] Page scrape: hero={'found' if page_hero else 'none'}, body={'found' if page_body else 'none'}")
+        except Exception as e:
+            logger.warning(f"[Reprocess] Page scrape failed: {e}")
+
+    # ── 3b. Build search queries from article title + AI tags ─────────────────
+    ai_tags = updates.get("aiTags") or art.get("aiTags") or []
+    tag_str = " ".join(ai_tags[:3]) if ai_tags else ""
+    # Extract key entities from the title for focused searches
+    title_words = [w for w in article_title.split() if len(w) > 4 and w.isalpha()]
+    title_anchor = " ".join(title_words[:4]) if title_words else "GTA 6"
+
+    search_queries = [
+        f'{title_anchor} GTA VI screenshots HD',
+        f'{tag_str} GTA 6 Leonida 4K',
+        f'GTA VI Lucia Jason Vice City screenshots',
+        f'Grand Theft Auto VI gameplay 2026',
+        f'GTA 6 Leonida HD wallpaper',
+    ]
+
+    # ── 3c. Collect candidates from all search queries ────────────────────────
+    search_candidates: list = []
+    for q in search_queries:
+        try:
+            results = await search_fallback_images_ddg(q)
+            search_candidates.extend(results)
+            if len(search_candidates) >= 60:
+                break
+            await asyncio.sleep(0.3)  # polite delay between queries
+        except Exception as e:
+            logger.warning(f"[Reprocess] Search query failed '{q}': {e}")
+
+    logger.info(f"[Reprocess] Internet search returned {len(search_candidates)} raw candidates")
+
+    # ── 3d. Filter and rank all candidates ────────────────────────────────────
+    # Pool: page images first (most relevant), then internet search results
+    all_candidates = []
+    for url in ([page_hero, page_body] + search_candidates):
+        if url and url not in all_candidates:
+            all_candidates.append(url)
+
+    # ── 3e. Pick hero image — first globally unique valid candidate ────────────
+    final_hero = None
+    final_hero_hash = None
+    for candidate in all_candidates:
+        if not candidate or not candidate.startswith('http'):
+            continue
+        if not _is_globally_unique(candidate):
+            logger.debug(f"[Reprocess] Hero candidate rejected (globally used): {candidate[:80]}")
+            continue
+        # Quick URL validity check
+        try:
+            import httpx as _httpx
+            async with _httpx.AsyncClient(timeout=5, follow_redirects=True) as cli:
+                head = await cli.head(candidate)
+            if head.status_code not in (200, 206):
+                continue
+            ct = head.headers.get("content-type", "")
+            if "image" not in ct and not any(ext in candidate.lower() for ext in ('.jpg', '.jpeg', '.png', '.webp')):
+                continue
+        except Exception:
+            continue
+        final_hero = candidate
+        used_image_basenames.add(_basename(candidate))  # mark as used for body dedup
+        final_hero_hash = await _get_image_dhash_from_url(final_hero)
+        logger.info(f"[Reprocess] Hero selected: {final_hero[:100]}")
+        break
+
+    # Keep existing hero if we couldn't find a globally unique one
+    if not final_hero:
+        final_hero = existing_thumb
+        if final_hero:
+            final_hero_hash = await _get_image_dhash_from_url(final_hero)
+        logger.info(f"[Reprocess] Keeping existing hero (no unique internet alternative found)")
+
+    # ── 3f. Pick body image — must be globally unique AND visually distinct from hero ──
+    final_body = None
+    hero_basename = _basename(final_hero) if final_hero else ""
+    for candidate in all_candidates:
+        if not candidate or not candidate.startswith('http'):
+            continue
+        # Must not be the same as hero
+        if _basename(candidate) == hero_basename:
+            continue
+        # Must be globally unique across all articles
+        if not _is_globally_unique(candidate):
+            logger.debug(f"[Reprocess] Body candidate rejected (globally used): {candidate[:80]}")
+            continue
+        # Visual hash check against hero — must be visually distinct (hamming >= 10)
+        if final_hero_hash:
+            c_hash = await _get_image_dhash_from_url(candidate)
+            if c_hash:
+                dist = _hamming_distance(final_hero_hash, c_hash)
+                if dist < 10:
+                    logger.debug(f"[Reprocess] Body candidate rejected (visually similar, dist={dist}): {candidate[:80]}")
+                    continue
+        # Quick reachability check
+        try:
+            import httpx as _httpx
+            async with _httpx.AsyncClient(timeout=5, follow_redirects=True) as cli:
+                head = await cli.head(candidate)
+            if head.status_code not in (200, 206):
+                continue
+            ct = head.headers.get("content-type", "")
+            if "image" not in ct and not any(ext in candidate.lower() for ext in ('.jpg', '.jpeg', '.png', '.webp')):
+                continue
+        except Exception:
+            continue
+        final_body = candidate
+        used_image_basenames.add(_basename(candidate))
+        logger.info(f"[Reprocess] Body selected: {final_body[:100]}")
+        break
+
+    # ── 3g. Assemble visual_metadata if we have both ───────────────────────────
+    final_visual_metadata = v_meta  # from page scrape
+    if final_hero and final_body:
+        h_hash = final_hero_hash or await _get_image_dhash_from_url(final_hero)
+        b_hash = await _get_image_dhash_from_url(final_body)
+        dist = _hamming_distance(h_hash, b_hash) if (h_hash and b_hash) else 99
+        final_visual_metadata = {
+            "hero_hash_hex": h_hash,
+            "body_hash_hex": b_hash,
+            "hamming_distance": dist,
+            "hero_resolution": "internet_sourced",
+            "body_resolution": "internet_sourced",
+            "hero_segments": _decompose_hash(h_hash),
+            "body_segments": _decompose_hash(b_hash),
+        }
+
+    # ── Step 4: Apply image updates ───────────────────────────────────────────
+    if final_hero:
+        updates["imageThumbnail"] = final_hero
+        updates["heroImage"] = final_hero
+    if final_body:
+        updates["bodyImage"] = final_body
+    if final_visual_metadata:
+        updates["visual_metadata"] = final_visual_metadata
+
+    logger.info(f"[Reprocess] Complete for {article_id} — hero={'set' if final_hero else 'missing'}, body={'set' if final_body else 'missing'}")
+
+    # ── Step 5: Persist ───────────────────────────────────────────────────────
     await db.scraped_articles.update_one({"id": article_id}, {"$set": updates})
 
     return {
@@ -1392,7 +1572,9 @@ async def reprocess_article(article_id: str, body: dict = {}, _: bool = Depends(
         "aiTags": updates.get("aiTags"),
         "newsValueScore": updates.get("newsValueScore"),
         "imageThumbnail": updates.get("imageThumbnail"),
+        "heroImage": updates.get("heroImage"),
         "bodyImage": updates.get("bodyImage"),
+        "visual_metadata": updates.get("visual_metadata"),
     }
 
 # ── Hero / Featured ───────────────────────────────────────────────────────────
