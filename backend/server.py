@@ -1255,6 +1255,8 @@ async def ai_summarize(article: dict, groq_key: Optional[str] = None) -> dict:
             result.update({"aiSummary": summary if len(summary) > 20 else None, "aiTags": tags, "newsValueScore": score})
 
         # ── Call 2: Full 4-paragraph article ─────────────────────────────────
+        # Uses llama-4-scout (30k tokens/min) instead of llama-3.3-70b (12k tokens/min)
+        # to avoid rate limit failures when processing multiple articles back-to-back.
         full_prompt = (
             f'Category: {category}\nSource: {src_name}\nHeadline: "{title}"\n'
             f'Raw content: "{source_text[:2000]}"\n\n'
@@ -1263,6 +1265,7 @@ async def ai_summarize(article: dict, groq_key: Optional[str] = None) -> dict:
         full = await _groq_chat(
             [{"role": "system", "content": FULL_ARTICLE_SYSTEM}, {"role": "user", "content": full_prompt}],
             max_tokens=750,
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
             purpose="full_article"
         )
         if full and len(full.strip()) > 80:
