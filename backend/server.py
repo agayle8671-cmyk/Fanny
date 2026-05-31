@@ -1073,15 +1073,16 @@ FULL_ARTICLE_SYSTEM = f"""You are a senior staff writer for The Leonida Vice —
 
 {LEONIDA_WORLD_KNOWLEDGE}
 
-Write a FULL EDITORIAL ARTICLE in 4 structured paragraphs:
+Write a FULL EDITORIAL ARTICLE in 4 structured paragraphs. You MUST write ALL FOUR paragraphs completely. Do not stop after one or two paragraphs. The article is not finished until all four sections are written.
 
 1. LEDE — One punchy sentence that captures the story's full weight. No throat-clearing.
-2. CORE FACTS — All the verified information from the source, written as crisp present-tense reporting. Include names, figures, dates, and direct quotes if present in the source.
-3. SIGNIFICANCE — Why this matters specifically to GTA VI's development, release trajectory, or the fan community. Connect dots from the world knowledge above where relevant.
-4. LEONIDA TAKE — The editorial voice. What does The Leonida Vice make of this? What questions remain? What should the reader watch for next?
+2. CORE FACTS — All the verified information from the source, written as crisp present-tense reporting. Include names, figures, dates, and direct quotes if present in the source. This is the longest paragraph — at minimum 100 words.
+3. SIGNIFICANCE — Why this matters specifically to GTA VI's development, release trajectory, or the fan community. Connect dots from the world knowledge above where relevant. At minimum 80 words.
+4. LEONIDA TAKE — The editorial voice. What does The Leonida Vice make of this? What questions remain? What should the reader watch for next? At minimum 60 words.
 
-RULES:
-- 350-550 words total. Substantial. Journalistic. No padding.
+CRITICAL OUTPUT RULES:
+- You MUST write all 4 paragraphs. NEVER stop after fewer than 4 paragraphs.
+- Minimum 350 words total. Target 450-550 words.
 - Prose only — no headers, bullets, or markdown within the article.
 - Present tense throughout.
 - Never fabricate details not in the source.
@@ -1102,7 +1103,7 @@ async def _groq_chat(messages: list, max_tokens: int = 300, model: str = "llama-
         "temperature": 0.2,
     }
     try:
-        async with httpx.AsyncClient(timeout=30) as cli:
+        async with httpx.AsyncClient(timeout=60) as cli:
             r = await cli.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 json=payload,
@@ -1113,7 +1114,11 @@ async def _groq_chat(messages: list, max_tokens: int = 300, model: str = "llama-
             return None
         
         resp_json = r.json()
-        content = resp_json["choices"][0]["message"]["content"]
+        choice = resp_json["choices"][0]
+        content = choice["message"]["content"]
+        finish_reason = choice.get("finish_reason", "unknown")
+        if finish_reason == "length":
+            logger.warning(f"[Groq] Response truncated by max_tokens (finish_reason=length). Model={model}, purpose={purpose}.")
         
         # Log token usage to MongoDB
         usage = resp_json.get("usage")
@@ -1219,7 +1224,7 @@ async def ai_summarize(article: dict, groq_key: Optional[str] = None) -> dict:
         )
         raw = await _groq_chat(
             [{"role": "system", "content": JOURNALIST_SYSTEM}, {"role": "user", "content": user_prompt}],
-            max_tokens=400,
+            max_tokens=550,
             purpose="summary"
         )
         if raw:
@@ -1246,19 +1251,24 @@ async def ai_summarize(article: dict, groq_key: Optional[str] = None) -> dict:
         # Full article content — 4-paragraph long-form
         full_prompt = (
             f'Category: {category}\nSource: {src_name}\nHeadline: "{title}"\n'
-            f'Raw content: "{source_text[:2000]}"\n\n'
-            f'Write the full editorial article. 4 paragraphs, 350-550 words. Lede → Core Facts → Significance → Leonida Take.'
+            f'Raw content: "{source_text[:3000]}"\n\n'
+            f'Write the COMPLETE full editorial article. You MUST write all 4 full paragraphs with at least 350 words total — '
+            f'do NOT stop early. Structure: Lede → Core Facts → Significance → Leonida Take. '
+            f'Each paragraph must be at least 2-3 sentences long. Do not cut the article short.'
         )
         full = await _groq_chat(
             [{"role": "system", "content": FULL_ARTICLE_SYSTEM}, {"role": "user", "content": full_prompt}],
-            max_tokens=750,
+            max_tokens=1500,
             purpose="full_article"
         )
         if full and len(full.strip()) > 80:
-            # Enforce paragraph density: split any block > 140 words, ensure >= 3 paragraphs
+            full_word_count = len(full.split())
+            if full_word_count < 100:
+                logger.warning(f"[AI] Suspiciously short article ({full_word_count} words) for '{title[:60]}'")
+            # Enforce paragraph density: split any block > 140 words, ensure >= 4 paragraphs
             paras = _split_dense_paragraphs(full.strip(), max_words=140)
-            while len(paras) < 3:
-                paras.append(paras[-1] if paras else "Further details are pending from Leonida Vice field correspondents.")
+            while len(paras) < 4:
+                paras.append(paras[-1] if paras else "Further analysis from Leonida Vice field correspondents is forthcoming.")
             result["aiContent"] = "\n\n".join(paras)
 
         result["aiProcessed"] = True
