@@ -2264,6 +2264,87 @@ async def repair_images_endpoint(background_tasks: BackgroundTasks, _: bool = De
     background_tasks.add_task(_do_repair)
     return {"success": True, "message": "Image repair sweep started in background"}
 
+# ── Automatic Image Re-Imager ─────────────────────────────────────────────────
+@api_router.post("/editorial/auto-reimage")
+async def auto_reimage(body: dict, _: bool = Depends(require_editorial_key)):
+    """
+    Analyzes article contents with Groq, extracts highly specific search terms,
+    scrapes live images, runs range/reachability filters, and directly returns the single best HD asset.
+    """
+    title = body.get("title", "")
+    summary = body.get("summary", "")
+    paragraphs = body.get("paragraphs", [])
+    image_type = body.get("type", "hero")
+    exclude_url = body.get("exclude_url")
+
+    full_text = f"Title: {title}\nSummary: {summary}\n"
+    if isinstance(paragraphs, list):
+        full_text += "\n".join(paragraphs)
+
+    # Ask Groq to extract the absolute best search term for the visual subject of this specific article
+    search_query = f"{title} GTA VI"
+    if GROQ_API_KEY:
+        try:
+            prompt = (
+                f"You are a professional visual director. Analyze this article and output EXACTLY ONE "
+                f"highly specific search query to find a relevant widescreen screenshot or official artwork image "
+                f"for the '{image_type}' position of this article.\n\n"
+                f"Article Content:\n{full_text}\n\n"
+                f"Rules:\n"
+                f"- Output ONLY the query string, nothing else. No explanation, no quotes, no markdown.\n"
+                f"- Focus on concrete visual subjects described in the article (e.g. 'GTA 6 motorcycle chase', 'GTA VI Rockstar Games logo banner', 'Vice City skyline sunset').\n"
+                f"- Append 'widescreen HD' or 'screenshot' to ensure high quality.\n"
+                f"Query:"
+            )
+            ai_query = await _groq_chat(
+                [{"role": "user", "content": prompt}],
+                max_tokens=25,
+                temperature=0.3
+            )
+            ai_query = ai_query.strip().strip('"').strip("'")
+            if ai_query:
+                search_query = ai_query
+        except Exception as e:
+            logger.warning(f"[AutoReimage] Groq query generation failed: {e}")
+
+    logger.info(f"[AutoReimage] Scrape query: '{search_query}'")
+    candidates = await search_fallback_images_ddg(search_query)
+
+    import httpx
+    selected_image = None
+
+    for url in candidates:
+        url = _upgrade_to_hd(url)
+        if exclude_url and _clean_url_for_compare(url) == _clean_url_for_compare(exclude_url):
+            continue
+
+        try:
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
+            async with httpx.AsyncClient(timeout=1.2, follow_redirects=True, headers=headers) as client:
+                res = await client.head(url)
+                if res.status_code in (200, 206):
+                    ct = res.headers.get("content-type", "")
+                    cl = int(res.headers.get("content-length", 0))
+                    if "image" in ct and cl > 4000:
+                        selected_image = url
+                        break
+        except Exception:
+            pass
+
+    if not selected_image:
+        for url in candidates:
+            if exclude_url and _clean_url_for_compare(url) == _clean_url_for_compare(exclude_url):
+                continue
+            selected_image = url
+            break
+
+    if not selected_image:
+        import random
+        selected_image = random.choice(list(GTA6_POOL))
+
+    logger.info(f"[AutoReimage] Direct match: '{selected_image[:80]}'")
+    return {"success": True, "image": selected_image, "query": search_query}
+
 # ── Live Image Search Scraper ─────────────────────────────────────────────────
 @api_router.post("/editorial/scrape-live-images")
 async def scrape_live_images(body: dict, _: bool = Depends(require_editorial_key)):

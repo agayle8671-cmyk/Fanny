@@ -45,6 +45,8 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
   const [scrapeTarget, setScrapeTarget] = useState("hero"); // "hero" or "body"
   const [scrapeResults, setScrapeResults] = useState([]);
   const [scrapeLoading, setScrapeLoading] = useState(false);
+  const [heroReimaging, setHeroReimaging] = useState(false);
+  const [bodyReimaging, setBodyReimaging] = useState(false);
 
   // Inline loading trackers
   const [reprocessingIds, setReprocessingIds] = useState(new Set());
@@ -278,6 +280,34 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
     setScrapeQuery(cleanTitle ? `${cleanTitle} GTA 6` : "GTA 6 HD screenshot widescreen");
     setScrapeResults([]);
     setScrapeModalOpen(true);
+  };
+
+  const handleAutoReimage = async (type) => {
+    if (type === "hero") setHeroReimaging(true);
+    else setBodyReimaging(true);
+
+    try {
+      const payload = {
+        title: editorTitle,
+        summary: editorSummary,
+        paragraphs: editorParagraphs,
+        type: type,
+        exclude_url: type === "body" ? editorHeroImage : undefined
+      };
+      const res = await apiCall("/editorial/auto-reimage", apiKey, "POST", payload);
+      if (res && res.success && res.image) {
+        if (type === "hero") {
+          setEditorHeroImage(res.image);
+        } else {
+          setEditorBodyImage(res.image);
+        }
+      }
+    } catch (e) {
+      console.error("[AutoReimage] Failed:", e);
+    }
+
+    if (type === "hero") setHeroReimaging(false);
+    else setBodyReimaging(false);
   };
 
   const runLiveImageScrape = async () => {
@@ -539,12 +569,13 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
                   />
                   <button
                     type="button"
-                    onClick={() => triggerImageScrape("hero")}
-                    title="Scrape new widescreen HD hero images from the web"
-                    className="flex items-center justify-center px-3 bg-[#ff2a6d]/10 border border-[#ff2a6d]/20 hover:bg-[#ff2a6d]/20 hover:border-[#ff2a6d]/40 text-[#ff2a6d] rounded-lg text-xs font-semibold tracking-wider transition-all gap-1.5 group shrink-0"
+                    onClick={() => handleAutoReimage("hero")}
+                    disabled={heroReimaging}
+                    title="Automatically find and replace with a highly relevant widescreen HD image"
+                    className="flex items-center justify-center px-4 bg-[#ff2a6d]/10 border border-[#ff2a6d]/20 hover:bg-[#ff2a6d]/20 hover:border-[#ff2a6d]/40 text-[#ff2a6d] rounded-lg text-xs font-semibold tracking-wider transition-all gap-1.5 group shrink-0 min-w-[95px] disabled:opacity-50"
                   >
-                    <Search size={13} className="group-hover:scale-110 transition-transform" />
-                    <span>Scrape</span>
+                    <RefreshCw size={13} className={heroReimaging ? "animate-spin text-[#ff2a6d]" : "group-hover:rotate-180 transition-transform duration-500"} />
+                    <span>{heroReimaging ? "Re-Imaging" : "Re-Image"}</span>
                   </button>
                 </div>
               </div>
@@ -560,12 +591,13 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
                   />
                   <button
                     type="button"
-                    onClick={() => triggerImageScrape("body")}
-                    title="Scrape new widescreen HD body images from the web"
-                    className="flex items-center justify-center px-3 bg-[#ff2a6d]/10 border border-[#ff2a6d]/20 hover:bg-[#ff2a6d]/20 hover:border-[#ff2a6d]/40 text-[#ff2a6d] rounded-lg text-xs font-semibold tracking-wider transition-all gap-1.5 group shrink-0"
+                    onClick={() => handleAutoReimage("body")}
+                    disabled={bodyReimaging}
+                    title="Automatically find and replace with a highly relevant widescreen HD image"
+                    className="flex items-center justify-center px-4 bg-[#ff2a6d]/10 border border-[#ff2a6d]/20 hover:bg-[#ff2a6d]/20 hover:border-[#ff2a6d]/40 text-[#ff2a6d] rounded-lg text-xs font-semibold tracking-wider transition-all gap-1.5 group shrink-0 min-w-[95px] disabled:opacity-50"
                   >
-                    <Search size={13} className="group-hover:scale-110 transition-transform" />
-                    <span>Scrape</span>
+                    <RefreshCw size={13} className={bodyReimaging ? "animate-spin text-[#ff2a6d]" : "group-hover:rotate-180 transition-transform duration-500"} />
+                    <span>{bodyReimaging ? "Re-Imaging" : "Re-Image"}</span>
                   </button>
                 </div>
               </div>
@@ -1025,129 +1057,6 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
                 className="bg-[#ff2a6d] hover:bg-[#ff2a6d]/90 text-white font-bold uppercase tracking-wider text-xs py-2 px-6 rounded-lg border border-[#ff2a6d]/50 transition-all shadow-lg shadow-[#ff2a6d]/20 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {rejecting ? "Rejecting..." : "Confirm Reject"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Live Widescreen Image Scrape Modal */}
-      {scrapeModalOpen && (
-        <div className="fixed inset-0 bg-black/85 z-[2100] flex items-center justify-center backdrop-blur-md p-4 animate-fadeIn">
-          <div className="bg-[#121216] border border-white/10 rounded-2xl p-6 w-[720px] max-w-full max-h-[85vh] overflow-y-auto shadow-2xl relative flex flex-col scrollbar-thin">
-            <button 
-              onClick={() => setScrapeModalOpen(false)}
-              className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"
-            >
-              <X size={18} />
-            </button>
-
-            <div className="flex items-center gap-3.5 mb-5 pb-4 border-b border-white/5 shrink-0">
-              <div className="w-10 h-10 rounded-lg bg-[#ff2a6d]/10 flex items-center justify-center text-[#ff2a6d] border border-[#ff2a6d]/20">
-                <Image size={18} />
-              </div>
-              <div>
-                <h4 className="text-sm font-bold text-white uppercase tracking-wider">
-                  Live Widescreen Asset Scraper
-                </h4>
-                <p className="text-[10px] text-zinc-500 uppercase tracking-widest mt-0.5">
-                  Scraping for {scrapeTarget === "hero" ? "Hero / Headline" : "Body Content"} Image
-                </p>
-              </div>
-            </div>
-
-            {/* Search Input Bar */}
-            <div className="flex gap-2 mb-5 shrink-0">
-              <input
-                value={scrapeQuery}
-                onChange={(e) => setScrapeQuery(e.target.value)}
-                placeholder="Enter search query (e.g. GTA 6 Lucia motorcycle)..."
-                onKeyDown={(e) => e.key === "Enter" && runLiveImageScrape()}
-                className="flex-1 bg-[#09090b] border border-white/5 focus:border-[#ff2a6d]/50 focus:outline-none text-xs text-[#f9f9fa] rounded-lg px-4 py-3 transition-all"
-              />
-              <button
-                onClick={runLiveImageScrape}
-                disabled={scrapeLoading || !scrapeQuery.trim()}
-                className="px-6 bg-[#ff2a6d] hover:bg-[#ff2a6d]/90 text-white font-bold uppercase tracking-wider text-xs rounded-lg transition-all flex items-center gap-2 shadow-lg shadow-[#ff2a6d]/20 disabled:opacity-40"
-              >
-                {scrapeLoading ? (
-                  <>
-                    <RefreshCw size={12} className="animate-spin" />
-                    <span>Scraping…</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles size={12} />
-                    <span>Scrape Live</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-            {/* Results Grid */}
-            <div className="flex-1 min-h-[250px] max-h-[400px] overflow-y-auto mb-6 pr-2 scrollbar-thin">
-              {scrapeLoading ? (
-                <div className="h-full flex flex-col items-center justify-center gap-3 py-12">
-                  <RefreshCw size={32} className="animate-spin text-[#ff2a6d]" />
-                  <p className="text-xs text-zinc-400 font-medium uppercase tracking-wider animate-pulse">
-                    Scanning Google, Bing, and gaming databases for widescreen assets…
-                  </p>
-                </div>
-              ) : scrapeResults.length > 0 ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3.5">
-                  {scrapeResults.map((url, i) => (
-                    <div 
-                      key={i}
-                      onClick={() => {
-                        if (scrapeTarget === "hero") {
-                          setEditorHeroImage(url);
-                        } else {
-                          setEditorBodyImage(url);
-                        }
-                        setScrapeModalOpen(false);
-                      }}
-                      className="group aspect-video rounded-xl bg-black border border-white/5 hover:border-[#ff2a6d] overflow-hidden cursor-pointer relative transition-all duration-200 hover:shadow-lg hover:shadow-[#ff2a6d]/5"
-                    >
-                      <img 
-                        src={url} 
-                        alt={`Scraped asset ${i}`} 
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                        onError={(e) => {
-                          e.target.src = PLACEHOLDER_IMAGE;
-                        }}
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/0 to-black/0 opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-between p-2.5">
-                        <span className="text-[8px] font-bold uppercase tracking-wider text-zinc-300 bg-black/60 px-1.5 py-0.5 rounded border border-white/10">
-                          HD Asset
-                        </span>
-                        <span className="text-[8px] font-bold uppercase tracking-wider text-[#ff2a6d] bg-[#ff2a6d]/10 px-1.5 py-0.5 rounded border border-[#ff2a6d]/20">
-                          Select
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="h-full flex flex-col items-center justify-center gap-2 py-12 border border-dashed border-white/5 rounded-xl bg-white/[0.01]">
-                  <Image size={24} className="text-zinc-600 mb-1" />
-                  <p className="text-xs font-semibold text-zinc-400">No live assets scraped yet</p>
-                  <p className="text-[10px] text-zinc-500 max-w-sm text-center px-4">
-                    Enter a specific descriptive query (e.g. "GTA 6 vehicle customization trailer screenshot") and click Scrape to gather widescreen mirrors instantly.
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className="flex justify-between items-center pt-4 border-t border-white/5 shrink-0">
-              <span className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider">
-                Real-time internet source verification active
-              </span>
-              <button
-                onClick={() => setScrapeModalOpen(false)}
-                className="bg-transparent hover:bg-white/[0.03] border border-white/10 text-zinc-400 py-2 px-5 rounded-lg text-xs font-semibold uppercase tracking-wider transition-all"
-              >
-                Cancel
               </button>
             </div>
           </div>
