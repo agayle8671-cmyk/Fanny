@@ -2011,17 +2011,13 @@ async def reprocess_article(
     article_id: str,
     body: dict = {},
     _: bool = Depends(require_editorial_key),
-    x_groq_api_key: Optional[str] = Header(None),
 ):
     """
     Re-AI summarize + full internet-wide image hunt.
-    This is the ONLY place images are sourced — not during scraping.
-    Finds 2 unique images (hero + body) from across the internet,
-    deduplicating against ALL images already used in the database.
     """
-    # Accept Groq key from header (preferred) or body (legacy)
-    groq_key = x_groq_api_key or (body.get("groqKey") if body else None) or GROQ_API_KEY or None
-    logger.info(f"[Reprocess] Article {article_id} — groq_key present: {bool(groq_key)}, source: {'header' if x_groq_api_key else 'body/env'}")
+    # Always use the server-side GROQ_API_KEY — never trust the header for Groq auth.
+    # The X-Groq-Api-Key header contains the editorial password, not a Groq key.
+    groq_key = GROQ_API_KEY or None
     art = await db.scraped_articles.find_one({"id": article_id}, {"_id": 0})
     if not art:
         raise HTTPException(status_code=404, detail="Not found")
@@ -2642,17 +2638,15 @@ async def parse_article_groq(
     and any tuning instructions from the editor).
     Returns: { title, aiSummary, aiContent, aiTags, newsValueScore, category }
     """
-    if not x_groq_api_key:
-        raise HTTPException(status_code=400, detail="Missing X-Groq-Api-Key header")
     raw_text = payload.get("rawText", "")
     if not raw_text:
         raise HTTPException(status_code=400, detail="Missing rawText")
     model = payload.get("model", "llama-3.3-70b-versatile")
 
-    # Temporarily override the global Groq key with the one from the request header
-    global GROQ_API_KEY
-    original_key = GROQ_API_KEY
-    GROQ_API_KEY = x_groq_api_key
+    # Always use server-side GROQ_API_KEY — the header contains the editorial
+    # password (LEONIDA2026), not a Groq key.
+    if not GROQ_API_KEY:
+        raise HTTPException(status_code=500, detail="Groq API key not configured on server")
 
     try:
         # ── Call 1: Deck / Summary ────────────────────────────────────────────
@@ -2723,8 +2717,6 @@ async def parse_article_groq(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        GROQ_API_KEY = original_key
 
 # ══════════════════════════════════════════════════════════════════════════════
 # OG IMAGE GENERATOR
