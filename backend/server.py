@@ -254,11 +254,12 @@ async def _fetch_rss(source: dict) -> List[dict]:
 # ──────────────────────────────────────────────────────────────────────────────
 # COGNITIVE IMAGE SCRAPING AND CURATION SIDECAR (CISCS) UTILITIES
 # ──────────────────────────────────────────────────────────────────────────────
-async def verify_image_resolution_stream(image_url: str, min_width: int = 800, min_height: int = 450) -> bool:
+async def verify_image_resolution_stream(image_url: str, min_width: int = 800, min_height: int = 450) -> Optional[tuple]:
     """
     Decodes image dimensions incrementally from the initial byte headers using PIL.ImageFile.Parser
     to avoid full payload downloads. Restricts range requests to 32KB.
     Ensures the image is in landscape mode (width > height) and meets HD limits.
+    Returns (width, height) if valid, otherwise None.
     """
     import httpx
     from PIL import ImageFile
@@ -270,7 +271,7 @@ async def verify_image_resolution_stream(image_url: str, min_width: int = 800, m
         async with httpx.AsyncClient(timeout=6, follow_redirects=True, headers=headers) as client:
             async with client.stream("GET", image_url) as r:
                 if r.status_code not in (200, 206):
-                    return False
+                    return None
                 
                 parser = ImageFile.Parser()
                 bytes_read = 0
@@ -281,13 +282,13 @@ async def verify_image_resolution_stream(image_url: str, min_width: int = 800, m
                         width, height = parser.image.size
                         # Enforce landscape and minimal dimensions
                         if width > height and width >= min_width and height >= min_height:
-                            return True
-                        return False
+                            return (width, height)
+                        return None
                     if bytes_read > 65536:  # Escape if we read more than 64KB and still no header
                         break
-        return False
+        return None
     except Exception:
-        return False
+        return None
 
 
 async def _get_image_dhash_from_url(image_url: str) -> Optional[str]:
@@ -337,6 +338,41 @@ def _hamming_distance(h1: str, h2: str) -> int:
         return 99
 
 
+def _decompose_hash(hash_hex: Optional[str]) -> Optional[dict]:
+    """Decomposes a 64-bit hex hash string into four 16-bit integer segments to index in MongoDB."""
+    if not hash_hex:
+        return None
+    try:
+        val = int(hash_hex, 16)
+        return {
+            "hash_segment_1": (val >> 48) & 0xFFFF,
+            "hash_segment_2": (val >> 32) & 0xFFFF,
+            "hash_segment_3": (val >> 16) & 0xFFFF,
+            "hash_segment_4": val & 0xFFFF,
+        }
+    except Exception:
+        return None
+
+
+def _build_search_query(text: str, domain: str) -> str:
+    """Extracts anchors Lucia/Jason/Leonida from text to dynamically construct q={anchors}+'GTA VI' fallbacks."""
+    anchors = []
+    text_lower = text.lower()
+    if "lucia" in text_lower:
+        anchors.append("Lucia")
+    if "jason" in text_lower:
+        anchors.append("Jason")
+    if "leonida" in text_lower:
+        anchors.append("Leonida")
+    
+    if not anchors:
+        anchors.append("Lucia Jason Leonida")
+    
+    # Matches q={anchors} + 'GTA VI' search parameter logic from visual curation supervisor
+    query = " ".join(anchors) + ' "GTA VI" screenshots HD'
+    return query
+
+
 async def search_fallback_images_ddg(query: str) -> list:
     """
     Queries DuckDuckGo's free Image API to source verified high-resolution widescreen GTA VI mirrors
@@ -376,10 +412,11 @@ async def search_fallback_images_ddg(query: str) -> list:
 
 async def _fetch_article_images(url: str, existing_thumb: Optional[str] = None) -> tuple:
     """
-    Scrape the article source page and return (hero_image, body_image).
+    Scrape the article source page and return (hero_image, body_image, visual_metadata).
     - hero_image: og:image or first large image found
     - body_image: a DIFFERENT image from the same page (unique, not a duplicate of hero)
-    Returns (None, None) if suitable images cannot be found.
+    - visual_metadata: dict conforming to the MongoDB CISCS database persistence schema.
+    Returns (None, None, None) if suitable images cannot be found.
     Skips icons, logos, avatars, ads, and tiny images (< 300px heuristic via URL patterns).
     Upgrades all quality/dimensions to high-definition (HD) variants.
     """
@@ -501,9 +538,12 @@ async def _fetch_article_images(url: str, existing_thumb: Optional[str] = None) 
             hero = unique_candidates[0]
 
         # Stage 4 Resolution check on hero candidate
+        hero_w, hero_h = None, None
         if hero:
-            is_hero_hd = await verify_image_resolution_stream(hero, min_width=800, min_height=450)
-            if not is_hero_hd:
+            res_tuple = await verify_image_resolution_stream(hero, min_width=800, min_height=450)
+            if res_tuple:
+                hero_w, hero_h = res_tuple
+            else:
                 hero = None
 
         # Stage 5 Uniqueness dHash filtering for body candidates
@@ -511,22 +551,25 @@ async def _fetch_article_images(url: str, existing_thumb: Optional[str] = None) 
         hero_clean = _clean_url_for_compare(hero) if hero else ""
 
         body = None
-        hd_body_candidates = []
+        body_w, body_h = None, None
+        hd_body_candidates = [] # list of (url, width, height)
         
         for c in unique_candidates:
             c_clean = _clean_url_for_compare(c)
             if c_clean and c_clean != hero_clean:
                 # Resolution stream check
-                if await verify_image_resolution_stream(c, min_width=800, min_height=450):
-                    hd_body_candidates.append(c)
+                res_tuple = await verify_image_resolution_stream(c, min_width=800, min_height=450)
+                if res_tuple:
+                    hd_body_candidates.append((c, res_tuple[0], res_tuple[1]))
 
-        for c in hd_body_candidates:
-            c_hash = await _get_image_dhash_from_url(c)
+        for c_url, w, h in hd_body_candidates:
+            c_hash = await _get_image_dhash_from_url(c_url)
             if c_hash and hero_hash:
                 dist = _hamming_distance(hero_hash, c_hash)
                 if dist < 10:  # Visual duplicate / near-identical frames
                     continue
-            body = c
+            body = c_url
+            body_w, body_h = w, h
             break
 
         # Fallback Sourcing: If we are missing either the hero or the body, query DuckDuckGo Fallback search!
@@ -535,47 +578,67 @@ async def _fetch_article_images(url: str, existing_thumb: Optional[str] = None) 
             domain_words = [w for w in parsed_url.netloc.split('.') if w not in ('www', 'com', 'org', 'net', 'co', 'uk', 'news')]
             search_domain = domain_words[0] if domain_words else "GTA 6"
             
-            query = f"{search_domain} GTA 6 Lucia Jason Leonida screenshots HD"
+            query = _build_search_query(html or url, search_domain)
             logger.info(f"[SearchFallback] Sourcing visual mirrors for query: '{query}'")
             
             search_results = await search_fallback_images_ddg(query)
             
-            search_hd_candidates = []
+            search_hd_candidates = [] # list of (url, w, h)
             for s_img in search_results:
                 s_hd = _upgrade_to_hd(s_img)
                 if _is_valid_img(s_hd):
-                    if await verify_image_resolution_stream(s_hd, min_width=1024, min_height=576):
-                        search_hd_candidates.append(s_hd)
+                    res_tuple = await verify_image_resolution_stream(s_hd, min_width=1024, min_height=576)
+                    if res_tuple:
+                        search_hd_candidates.append((s_hd, res_tuple[0], res_tuple[1]))
             
             # Backfill hero if missing
             if not hero and search_hd_candidates:
-                hero = search_hd_candidates[0]
+                hero, hero_w, hero_h = search_hd_candidates[0]
                 hero_hash = await _get_image_dhash_from_url(hero)
                 hero_clean = _clean_url_for_compare(hero)
                 search_hd_candidates = search_hd_candidates[1:]
             
             # Backfill body if missing
             if not body and search_hd_candidates:
-                for c in search_hd_candidates:
-                    c_clean = _clean_url_for_compare(c)
+                for c_url, w, h in search_hd_candidates:
+                    c_clean = _clean_url_for_compare(c_url)
                     if c_clean and c_clean != hero_clean:
-                        c_hash = await _get_image_dhash_from_url(c)
+                        c_hash = await _get_image_dhash_from_url(c_url)
                         if c_hash and hero_hash:
                             dist = _hamming_distance(hero_hash, c_hash)
                             if dist < 10:
                                 continue
-                        body = c
+                        body = c_url
+                        body_w, body_h = w, h
                         break
 
         # Final safety check: Ensure hero and body are completely distinct
         if hero and body:
             if _clean_url_for_compare(hero) == _clean_url_for_compare(body):
                 body = None
+                body_w, body_h = None, None
 
-        return (hero, body)
+        # Calculate final hamming distance and assemble visual_metadata
+        visual_metadata = None
+        if hero and body:
+            hero_hash_val = hero_hash or await _get_image_dhash_from_url(hero)
+            body_hash_val = await _get_image_dhash_from_url(body)
+            dist_val = _hamming_distance(hero_hash_val, body_hash_val) if (hero_hash_val and body_hash_val) else 99
+            
+            visual_metadata = {
+                "hero_hash_hex": hero_hash_val,
+                "body_hash_hex": body_hash_val,
+                "hamming_distance": dist_val,
+                "hero_resolution": f"{hero_w}x{hero_h}" if (hero_w and hero_h) else "unknown",
+                "body_resolution": f"{body_w}x{body_h}" if (body_w and body_h) else "unknown",
+                "hero_segments": _decompose_hash(hero_hash_val),
+                "body_segments": _decompose_hash(body_hash_val)
+            }
+
+        return (hero, body, visual_metadata)
     except Exception as e:
         logger.warning(f"[ImageScraper] Failed for {url}: {e}")
-        return (_upgrade_to_hd(existing_thumb) if existing_thumb else None, None)
+        return (_upgrade_to_hd(existing_thumb) if existing_thumb else None, None, None)
 
 
 async def run_scraper_pipeline(is_manual: bool = False) -> str:
@@ -647,13 +710,15 @@ async def run_scraper_pipeline(is_manual: bool = False) -> str:
                     # Fetch hero + unique body image from source page
                     thumb = item.get("image_thumbnail")
                     body_image = None
+                    visual_metadata = None
 
                     if not item.get("is_video"):
-                        scraped_hero, scraped_body = await _fetch_article_images(
+                        scraped_hero, scraped_body, v_meta = await _fetch_article_images(
                             item["source_url"], existing_thumb=thumb
                         )
                         thumb = scraped_hero or thumb
                         body_image = scraped_body
+                        visual_metadata = v_meta
 
                     # Strict gate: both hero AND body image required — no fallbacks
                     if not thumb or not body_image:
@@ -670,6 +735,7 @@ async def run_scraper_pipeline(is_manual: bool = False) -> str:
                         "urlHash":        url_hash,
                         "imageThumbnail": thumb,
                         "bodyImage":      body_image,
+                        "visual_metadata": visual_metadata,
                         "videoUrl":       item.get("video_url"),
                         "videoThumbnail": item.get("video_thumbnail"),
                         "isVideo":        item.get("is_video", False),
@@ -1170,10 +1236,14 @@ async def approve_article(
         if source_url:
             try:
                 existing_thumb = art.get("imageThumbnail") or art.get("videoThumbnail")
-                _, scraped_body = await _fetch_article_images(source_url, existing_thumb=existing_thumb)
+                scraped_hero, scraped_body, visual_metadata = await _fetch_article_images(source_url, existing_thumb=existing_thumb)
                 if scraped_body:
-                    await db.scraped_articles.update_one({"id": article_id}, {"$set": {"bodyImage": scraped_body}})
+                    await db.scraped_articles.update_one(
+                        {"id": article_id}, 
+                        {"$set": {"bodyImage": scraped_body, "visual_metadata": visual_metadata}}
+                    )
                     art["bodyImage"] = scraped_body
+                    art["visual_metadata"] = visual_metadata
             except Exception:
                 pass
     if not art.get("bodyImage"):
@@ -1298,9 +1368,10 @@ async def reprocess_article(article_id: str, body: dict = {}, _: bool = Depends(
         if source_url:
             existing_thumb = art.get("imageThumbnail") or art.get("videoThumbnail")
             try:
-                _, scraped_body = await _fetch_article_images(source_url, existing_thumb=existing_thumb)
+                _, scraped_body, visual_metadata = await _fetch_article_images(source_url, existing_thumb=existing_thumb)
                 if scraped_body:
                     updates["bodyImage"] = scraped_body
+                    updates["visual_metadata"] = visual_metadata
                     logger.info(f"[Reprocess] Backfilled bodyImage for {article_id}")
             except Exception as e:
                 logger.warning(f"[Reprocess] Could not scrape bodyImage for {article_id}: {e}")
