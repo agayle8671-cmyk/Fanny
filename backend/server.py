@@ -1105,66 +1105,79 @@ async def _groq_chat(messages: list, max_tokens: int = 300, model: str = "llama-
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
-    try:
-        async with httpx.AsyncClient(timeout=60) as cli:
-            r = await cli.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                json=payload,
-                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-            )
-        if r.status_code != 200:
-            logger.warning(f"[Groq] HTTP {r.status_code}: {r.text[:200]}")
-            return None
-
-        resp_json = r.json()
-        choice = resp_json["choices"][0]
-        content = choice["message"]["content"]
-        finish_reason = choice.get("finish_reason", "unknown")
-        if finish_reason == "length":
-            logger.warning(f"[Groq] Truncated by max_tokens (purpose={purpose}, model={model})")
-        else:
-            logger.info(f"[Groq] OK — purpose={purpose}, words={len(content.split())}, finish={finish_reason}")
-
-        # Log token usage to MongoDB — fully isolated, never blocks the return
+    # Retry up to 3 times on rate limit (429) with exponential backoff
+    for attempt in range(3):
         try:
-            usage = resp_json.get("usage", {})
-            resp_headers = r.headers
-            now_iso = datetime.now(timezone.utc).isoformat()
-            await db.groq_usage.insert_one({
-                "timestamp": now_iso,
-                "model": model,
-                "purpose": purpose,
-                "prompt_tokens": usage.get("prompt_tokens", 0),
-                "completion_tokens": usage.get("completion_tokens", 0),
-                "total_tokens": usage.get("total_tokens", 0),
-                "limit_requests":     resp_headers.get("x-ratelimit-limit-requests"),
-                "limit_tokens":       resp_headers.get("x-ratelimit-limit-tokens"),
-                "remaining_requests": resp_headers.get("x-ratelimit-remaining-requests"),
-                "remaining_tokens":   resp_headers.get("x-ratelimit-remaining-tokens"),
-                "reset_requests":     resp_headers.get("x-ratelimit-reset-requests"),
-                "reset_tokens":       resp_headers.get("x-ratelimit-reset-tokens"),
-            })
-            await db.groq_status.update_one(
-                {"_id": "latest_limits"},
-                {"$set": {
+            async with httpx.AsyncClient(timeout=60) as cli:
+                r = await cli.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                )
+            if r.status_code == 429:
+                wait = 10 * (attempt + 1)  # 10s, 20s, 30s
+                logger.warning(f"[Groq] Rate limited (attempt {attempt+1}/3) — waiting {wait}s (purpose={purpose})")
+                await asyncio.sleep(wait)
+                continue
+            if r.status_code != 200:
+                logger.warning(f"[Groq] HTTP {r.status_code}: {r.text[:200]}")
+                return None
+
+            resp_json = r.json()
+            choice = resp_json["choices"][0]
+            content = choice["message"]["content"]
+            finish_reason = choice.get("finish_reason", "unknown")
+            if finish_reason == "length":
+                logger.warning(f"[Groq] Truncated by max_tokens (purpose={purpose}, model={model})")
+            else:
+                logger.info(f"[Groq] OK — purpose={purpose}, words={len(content.split())}, finish={finish_reason}")
+
+            # Log token usage to MongoDB — fully isolated, never blocks the return
+            try:
+                usage = resp_json.get("usage", {})
+                resp_headers = r.headers
+                now_iso = datetime.now(timezone.utc).isoformat()
+                await db.groq_usage.insert_one({
                     "timestamp": now_iso,
+                    "model": model,
+                    "purpose": purpose,
+                    "prompt_tokens": usage.get("prompt_tokens", 0),
+                    "completion_tokens": usage.get("completion_tokens", 0),
+                    "total_tokens": usage.get("total_tokens", 0),
                     "limit_requests":     resp_headers.get("x-ratelimit-limit-requests"),
                     "limit_tokens":       resp_headers.get("x-ratelimit-limit-tokens"),
                     "remaining_requests": resp_headers.get("x-ratelimit-remaining-requests"),
                     "remaining_tokens":   resp_headers.get("x-ratelimit-remaining-tokens"),
                     "reset_requests":     resp_headers.get("x-ratelimit-reset-requests"),
                     "reset_tokens":       resp_headers.get("x-ratelimit-reset-tokens"),
-                }},
-                upsert=True
-            )
-        except Exception as log_ex:
-            logger.warning(f"[Groq] Usage log failed (non-fatal): {log_ex}")
+                })
+                await db.groq_status.update_one(
+                    {"_id": "latest_limits"},
+                    {"$set": {
+                        "timestamp": now_iso,
+                        "limit_requests":     resp_headers.get("x-ratelimit-limit-requests"),
+                        "limit_tokens":       resp_headers.get("x-ratelimit-limit-tokens"),
+                        "remaining_requests": resp_headers.get("x-ratelimit-remaining-requests"),
+                        "remaining_tokens":   resp_headers.get("x-ratelimit-remaining-tokens"),
+                        "reset_requests":     resp_headers.get("x-ratelimit-reset-requests"),
+                        "reset_tokens":       resp_headers.get("x-ratelimit-reset-tokens"),
+                    }},
+                    upsert=True
+                )
+            except Exception as log_ex:
+                logger.warning(f"[Groq] Usage log failed (non-fatal): {log_ex}")
 
-        return content
+            return content
 
-    except Exception as e:
-        logger.warning(f"[Groq] Request error (purpose={purpose}): {e}")
-        return None
+        except Exception as e:
+            logger.warning(f"[Groq] Request error (purpose={purpose}, attempt={attempt+1}): {e}")
+            if attempt < 2:
+                await asyncio.sleep(5)
+                continue
+            return None
+
+    logger.warning(f"[Groq] All 3 attempts failed (purpose={purpose})")
+    return None
 
 def _best_source_text(title: str, excerpt: Optional[str], content: Optional[str] = None, ai_content: Optional[str] = None) -> str:
     """
