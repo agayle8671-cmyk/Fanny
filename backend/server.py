@@ -1281,6 +1281,7 @@ async def ai_summarize(article: dict, groq_key: Optional[str] = None) -> dict:
         full = await _groq_chat(
             [{"role": "system", "content": FULL_ARTICLE_SYSTEM}, {"role": "user", "content": full_prompt}],
             max_tokens=1500,
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
             temperature=0.55,
             purpose="full_article"
         )
@@ -2731,7 +2732,7 @@ async def parse_article_groq(
         full = await _groq_chat(
             [{"role": "system", "content": FULL_ARTICLE_SYSTEM}, {"role": "user", "content": article_prompt}],
             max_tokens=1500,
-            model=model,
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
             temperature=0.55,
             purpose="parse_full_article"
         )
