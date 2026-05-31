@@ -1385,16 +1385,17 @@ async def delete_article(slug: str, _: bool = Depends(require_ingest_token)):
     return {"message": "Deleted"}
 
 @api_router.post("/articles/ingest")
-async def ingest_articles(payload: IngestPayload, _: bool = Depends(require_ingest_token)):
+async def ingest_articles(payload: IngestPayload, background_tasks: BackgroundTasks, _: bool = Depends(require_ingest_token)):
     now_iso = datetime.now(timezone.utc).isoformat()
     upserted = 0
+    ingested_docs = []
     for art in payload.articles:
         doc = art.model_dump()
         doc['category'] = normalize_category(doc.get('category'))
         if not doc.get('scrapedAt'):
             doc['scrapedAt'] = now_iso
         if not doc.get('status'):
-            doc['status'] = 'published'
+            doc['status'] = 'pending'  # Always pending — must go through approval/remediation
         if not doc.get('urlHash') and doc.get('sourceUrl'):
             doc['urlHash'] = _url_hash(doc['sourceUrl'])
         if not doc.get('heroImage') and doc.get('imageThumbnail'):
@@ -1405,6 +1406,7 @@ async def ingest_articles(payload: IngestPayload, _: bool = Depends(require_inge
             upsert=True,
         )
         upserted += 1
+        ingested_docs.append(doc)
     return {"upserted": upserted, "received": len(payload.articles)}
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2195,8 +2197,72 @@ async def manual_article(body: dict, _: bool = Depends(require_editorial_key)):
         "readTime":       "2 min read",
         "tags":           [],
     }
+    # Run image remediation — guarantees hero + body before saving as published
+    article_id_new = doc["id"]
+    source_url_new = doc["sourceUrl"]
+    hero_new, body_new, vm_new = await validate_and_remediate_images(
+        article_id_new,
+        doc.get("imageThumbnail"),
+        doc.get("bodyImage"),
+        source_url_new
+    )
+    doc["imageThumbnail"] = hero_new
+    doc["heroImage"] = hero_new
+    doc["bodyImage"] = body_new
+    if vm_new:
+        doc["visual_metadata"] = vm_new
+
     await db.scraped_articles.update_one({"slug": slug}, {"$set": doc}, upsert=True)
     return {"success": True, "slug": slug, "title": title}
+
+# ── Manual image repair sweep ─────────────────────────────────────────────────
+@api_router.post("/editorial/repair-images")
+async def repair_images_endpoint(background_tasks: BackgroundTasks, _: bool = Depends(require_editorial_key)):
+    """
+    Trigger an on-demand sweep that finds every published article missing a
+    hero or body image and runs validate_and_remediate_images on it.
+    Returns immediately; repair runs in the background.
+    """
+    async def _do_repair():
+        logger.info("[ImageRepair] Manual repair sweep triggered …")
+        try:
+            cursor = db.scraped_articles.find(
+                {
+                    "status": "published",
+                    "$or": [
+                        {"imageThumbnail": {"$in": [None, ""]}},
+                        {"heroImage":      {"$in": [None, ""]}},
+                        {"bodyImage":      {"$in": [None, ""]}},
+                    ]
+                },
+                {"_id": 0}
+            )
+            repaired = 0
+            async for art in cursor:
+                try:
+                    article_id = art.get("id", "")
+                    if not article_id:
+                        continue
+                    source_url = art.get("sourceUrl") or art.get("source_url", "")
+                    hero, body, vm = await validate_and_remediate_images(
+                        article_id,
+                        art.get("imageThumbnail") or art.get("heroImage") or art.get("videoThumbnail"),
+                        art.get("bodyImage"),
+                        source_url
+                    )
+                    await db.scraped_articles.update_one(
+                        {"id": article_id},
+                        {"$set": {"imageThumbnail": hero, "heroImage": hero, "bodyImage": body, "visual_metadata": vm}}
+                    )
+                    repaired += 1
+                    await asyncio.sleep(0.8)
+                except Exception as e:
+                    logger.warning(f"[ImageRepair] Failed {art.get('id')}: {e}")
+            logger.info(f"[ImageRepair] Manual sweep done — {repaired} articles repaired.")
+        except Exception as e:
+            logger.error(f"[ImageRepair] Manual sweep error: {e}")
+    background_tasks.add_task(_do_repair)
+    return {"success": True, "message": "Image repair sweep started in background"}
 
 # ── Sources management ────────────────────────────────────────────────────────
 @api_router.get("/editorial/sources")
@@ -2388,11 +2454,62 @@ async def startup():
     except Exception as e:
         logger.error(f"[Startup] Scheduler failed to start: {e}")
 
-    # Run audit 10 seconds after boot
+    # Run AI summary audit 10 seconds after boot
     async def _delayed_audit():
         await asyncio.sleep(10)
         await _audit_missing_summaries()
     asyncio.create_task(_delayed_audit())
+
+    # ── Image repair sweep — runs 30s after boot ───────────────────────────────
+    # Finds every published article that is missing hero OR body image and runs
+    # validate_and_remediate_images on it.  This retroactively heals any
+    # black-screen articles that slipped through before the remediation gate.
+    async def _repair_missing_images():
+        await asyncio.sleep(30)
+        logger.info("[ImageRepair] Starting startup image repair sweep …")
+        try:
+            cursor = db.scraped_articles.find(
+                {
+                    "status": "published",
+                    "$or": [
+                        {"imageThumbnail": {"$in": [None, ""]}},
+                        {"heroImage":      {"$in": [None, ""]}},
+                        {"bodyImage":      {"$in": [None, ""]}},
+                    ]
+                },
+                {"_id": 0}
+            )
+            repaired = 0
+            async for art in cursor:
+                try:
+                    article_id = art.get("id", "")
+                    if not article_id:
+                        continue
+                    source_url = art.get("sourceUrl") or art.get("source_url", "")
+                    hero, body, vm = await validate_and_remediate_images(
+                        article_id,
+                        art.get("imageThumbnail") or art.get("heroImage") or art.get("videoThumbnail"),
+                        art.get("bodyImage"),
+                        source_url
+                    )
+                    await db.scraped_articles.update_one(
+                        {"id": article_id},
+                        {"$set": {
+                            "imageThumbnail": hero,
+                            "heroImage":      hero,
+                            "bodyImage":      body,
+                            "visual_metadata": vm
+                        }}
+                    )
+                    repaired += 1
+                    logger.info(f"[ImageRepair] Repaired {article_id} — hero={hero[:60] if hero else 'NONE'}")
+                    await asyncio.sleep(1)  # Rate-limit to avoid hammering Groq/DDG
+                except Exception as e:
+                    logger.warning(f"[ImageRepair] Failed to repair {art.get('id')}: {e}")
+            logger.info(f"[ImageRepair] Sweep complete — {repaired} articles repaired.")
+        except Exception as e:
+            logger.error(f"[ImageRepair] Sweep failed: {e}")
+    asyncio.create_task(_repair_missing_images())
 
 @app.on_event("shutdown")
 async def shutdown():

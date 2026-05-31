@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { apiCall, CATEGORIES, PLACEHOLDER_IMAGE } from "./api";
-import { Trash2, ShieldAlert, Star, ExternalLink, RefreshCw } from "lucide-react";
+import { Trash2, ShieldAlert, Star, ExternalLink, RefreshCw, Wrench } from "lucide-react";
 
 export default function PublishedPanel({ apiKey }) {
   const [articles, setArticles] = useState([]);
@@ -9,6 +9,8 @@ export default function PublishedPanel({ apiKey }) {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [repairing, setRepairing] = useState(false);
+  const [repairToast, setRepairToast] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -41,6 +43,19 @@ export default function PublishedPanel({ apiKey }) {
     load();
   };
 
+  const repairImages = async () => {
+    setRepairing(true);
+    setRepairToast("");
+    try {
+      await apiCall("/editorial/repair-images", apiKey, "POST");
+      setRepairToast("✅ Repair sweep started — missing images being fixed in background.");
+    } catch (e) {
+      setRepairToast("❌ Repair failed: " + e.message);
+    }
+    setRepairing(false);
+    setTimeout(() => setRepairToast(""), 6000);
+  };
+
   return (
     <div className="p-6 bg-[#050505] text-[#f9f9fa] min-h-full">
       {/* Header */}
@@ -56,15 +71,31 @@ export default function PublishedPanel({ apiKey }) {
             {total} articles currently live on the front page and news sections
           </p>
         </div>
-        <button
-          onClick={load}
-          disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-zinc-400 bg-white/[0.02] border border-white/10 rounded-lg hover:text-white hover:bg-white/[0.05] transition-all"
-        >
-          <RefreshCw size={14} className={loading ? "animate-spin text-[#ff2a6d]" : ""} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={repairImages}
+            disabled={repairing}
+            title="Find and fix all published articles missing hero or body images"
+            className="flex items-center gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-amber-400 bg-amber-400/[0.06] border border-amber-400/20 rounded-lg hover:bg-amber-400/[0.12] hover:border-amber-400/40 transition-all disabled:opacity-50"
+          >
+            <Wrench size={14} className={repairing ? "animate-pulse" : ""} />
+            {repairing ? "Repairing…" : "Repair Images"}
+          </button>
+          <button
+            onClick={load}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-zinc-400 bg-white/[0.02] border border-white/10 rounded-lg hover:text-white hover:bg-white/[0.05] transition-all"
+          >
+            <RefreshCw size={14} className={loading ? "animate-spin text-[#ff2a6d]" : ""} />
+            Refresh
+          </button>
+        </div>
       </div>
+      {repairToast && (
+        <div className="mb-4 px-4 py-3 rounded-lg bg-white/[0.04] border border-white/10 text-xs text-zinc-300">
+          {repairToast}
+        </div>
+      )}
 
       {/* Filters Bar */}
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
