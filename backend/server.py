@@ -1230,6 +1230,11 @@ async def ai_summarize(article: dict, groq_key: Optional[str] = None) -> dict:
     result = {"aiProcessed": False, "aiSummary": None, "aiContent": None, "aiTags": [], "newsValueScore": 50}
 
     try:
+        if not GROQ_API_KEY:
+            logger.error(f"[AI] GROQ_API_KEY is not set — cannot generate article for '{title[:60]}'")
+            return result
+
+        logger.info(f"[AI] Starting summarize for '{title[:60]}' — source_text length: {len(source_text)} chars")
         user_prompt = (
             f'Category: {category}\nSource: {src_name}\nHeadline: "{title}"\n'
             f'Raw content: "{source_text[:1200]}"\n\n'
@@ -1240,6 +1245,10 @@ async def ai_summarize(article: dict, groq_key: Optional[str] = None) -> dict:
             max_tokens=550,
             purpose="summary"
         )
+        if raw:
+            logger.info(f"[AI] Summary call returned {len(raw)} chars for '{title[:60]}'")
+        else:
+            logger.warning(f"[AI] Summary call returned None for '{title[:60]}' — check Groq key/quota")
         if raw:
             title_m = re.search(r'REWRITTEN TITLE:\s*(.+)$', raw, re.I | re.M)
             rewritten_title = title_m.group(1).strip() if title_m else None
@@ -1275,6 +1284,10 @@ async def ai_summarize(article: dict, groq_key: Optional[str] = None) -> dict:
             temperature=0.55,
             purpose="full_article"
         )
+        if full:
+            logger.info(f"[AI] Full article call returned {len(full.split())} words for '{title[:60]}'")
+        else:
+            logger.warning(f"[AI] Full article call returned None for '{title[:60]}' — check Groq key/quota")
         if full and len(full.strip()) > 80:
             full_word_count = len(full.split())
             if full_word_count < 100:
@@ -2021,20 +2034,27 @@ async def patch_article(article_id: str, body: dict, _: bool = Depends(require_e
 
 # ── AI Reprocess ──────────────────────────────────────────────────────────────
 @api_router.post("/editorial/reprocess/{article_id}")
-async def reprocess_article(article_id: str, body: dict = {}, _: bool = Depends(require_editorial_key)):
+async def reprocess_article(
+    article_id: str,
+    body: dict = {},
+    _: bool = Depends(require_editorial_key),
+    x_groq_api_key: Optional[str] = Header(None),
+):
     """
     Re-AI summarize + full internet-wide image hunt.
     This is the ONLY place images are sourced — not during scraping.
     Finds 2 unique images (hero + body) from across the internet,
     deduplicating against ALL images already used in the database.
     """
-    groq_key = body.get("groqKey") if body else None
+    # Accept Groq key from header (preferred) or body (legacy)
+    groq_key = x_groq_api_key or (body.get("groqKey") if body else None) or GROQ_API_KEY or None
+    logger.info(f"[Reprocess] Article {article_id} — groq_key present: {bool(groq_key)}, source: {'header' if x_groq_api_key else 'body/env'}")
     art = await db.scraped_articles.find_one({"id": article_id}, {"_id": 0})
     if not art:
         raise HTTPException(status_code=404, detail="Not found")
 
     # ── Step 1: Run AI summarize ───────────────────────────────────────────────
-    updates = await ai_summarize(art, groq_key=groq_key or GROQ_API_KEY or None)
+    updates = await ai_summarize(art, groq_key=groq_key)
 
     # ── Step 2: Build set of ALL image URLs already used across the entire DB ──
     # This prevents re-using any hero or body image from any other article.
