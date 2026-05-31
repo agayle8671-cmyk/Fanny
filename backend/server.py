@@ -289,6 +289,23 @@ async def _is_image_reachable(url: str) -> bool:
     return False
 
 
+def _is_url_gta_related(url: str) -> bool:
+    """
+    Checks if an image URL points to a GTA/Rockstar-universe asset based on common keywords.
+    Helps filter out random sidebar logos, off-topic game icons, and ads from general pages.
+    """
+    if not url or not isinstance(url, str):
+        return False
+    u_lower = url.lower()
+    gta_keywords = ["gta", "grandtheft", "grand-theft", "rockstar", "lucia", "jason", "vicecity", "vice-city", "leonida", "take2", "taketwo", "sanandreas", "vice-beach"]
+    if "unsplash.com" in u_lower:
+        return True
+    if "prod-images.emergentagent.com" in u_lower:
+        return True
+    return any(k in u_lower for k in gta_keywords)
+
+
+
 async def verify_image_resolution_stream(image_url: str, min_width: int = 800, min_height: int = 450) -> Optional[tuple]:
     """
     Decodes image dimensions incrementally from the initial byte headers using PIL.ImageFile.Parser
@@ -777,6 +794,9 @@ async def _fetch_article_images(url: str, existing_thumb: Optional[str] = None) 
         for c in unique_candidates:
             c_clean = _clean_url_for_compare(c)
             if c_clean and c_clean != hero_clean:
+                # Discard random sidebar junk, developer logos, and ads from page body
+                if not _is_url_gta_related(c):
+                    continue
                 # Resolution stream check — relaxed to 400x225
                 res_tuple = await verify_image_resolution_stream(c, min_width=400, min_height=225)
                 if res_tuple:
@@ -2452,6 +2472,7 @@ async def auto_reimage(body: dict, _: bool = Depends(require_editorial_key)):
                 f"Rules:\n"
                 f"- Output ONLY the query string, nothing else. No explanation, no quotes, no markdown.\n"
                 f"- Focus on concrete visual subjects described in the article (e.g. 'GTA 6 motorcycle chase', 'GTA VI Rockstar Games logo banner', 'Vice City skyline sunset').\n"
+                f"- The output query MUST contain at least one of these keywords: 'GTA 6', 'GTA VI', 'Rockstar Games', 'Grand Theft Auto', or 'Vice City' to guarantee the results are strictly from the GTA universe.\n"
                 f"- Append 'widescreen HD' or 'screenshot' to ensure high quality.\n"
                 f"Query:"
             )
@@ -2476,6 +2497,8 @@ async def auto_reimage(body: dict, _: bool = Depends(require_editorial_key)):
         url = _upgrade_to_hd(url)
         if exclude_url and _clean_url_for_compare(url) == _clean_url_for_compare(exclude_url):
             continue
+        if not _is_url_gta_related(url):
+            continue
 
         try:
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
@@ -2493,6 +2516,8 @@ async def auto_reimage(body: dict, _: bool = Depends(require_editorial_key)):
     if not selected_image:
         for url in candidates:
             if exclude_url and _clean_url_for_compare(url) == _clean_url_for_compare(exclude_url):
+                continue
+            if not _is_url_gta_related(url):
                 continue
             selected_image = url
             break
