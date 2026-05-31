@@ -2626,42 +2626,95 @@ async def parse_article_groq(
     _: bool = Depends(require_ingest_token),
     x_groq_api_key: Optional[str] = Header(None)
 ):
+    """
+    Re-prompt endpoint used by the QueuePanel editor sandbox.
+    Runs the full JOURNALIST_SYSTEM + FULL_ARTICLE_SYSTEM pipeline against
+    the supplied rawText (which includes the current title, summary, paragraphs,
+    and any tuning instructions from the editor).
+    Returns: { title, aiSummary, aiContent, aiTags, newsValueScore, category }
+    """
     if not x_groq_api_key:
         raise HTTPException(status_code=400, detail="Missing X-Groq-Api-Key header")
-    raw_text = payload.get("rawText","")
+    raw_text = payload.get("rawText", "")
     if not raw_text:
         raise HTTPException(status_code=400, detail="Missing rawText")
-    model = payload.get("model","llama-3.3-70b-versatile")
-    import requests as _req
-    system_prompt = (
-        "You are a premium editorial parsing agent for 'Leonida Vice', a high-end Grand Theft Auto VI news network. "
-        "Parse raw text into a structured JSON payload with: slug, title, dek, category (one of: Leaks/Tech/Story/Media/World/Markets), "
-        "author, date, readTime, heroImage, tags (array), newsValueScore (0-100), and body (array of blocks with type: lead/p/h2/pull/image). "
-        "Output ONLY raw JSON, no markdown."
-    )
-    groq_payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Parse into JSON:\n\n{raw_text}"}
-        ],
-        "temperature": 0.2,
-        "response_format": {"type": "json_object"}
-    }
+    model = payload.get("model", "llama-3.3-70b-versatile")
+
+    # Temporarily override the global Groq key with the one from the request header
+    global GROQ_API_KEY
+    original_key = GROQ_API_KEY
+    GROQ_API_KEY = x_groq_api_key
+
     try:
-        r = _req.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            json=groq_payload,
-            headers={"Authorization": f"Bearer {x_groq_api_key}", "Content-Type": "application/json"},
-            timeout=30,
+        # ── Call 1: Deck / Summary ────────────────────────────────────────────
+        summary_prompt = (
+            f"The editor has provided the following article draft and tuning instructions.\n"
+            f"Rewrite the headline and editorial deck/summary accordingly.\n\n"
+            f"{raw_text[:2000]}\n\n"
+            f"Write the rewritten headline (REWRITTEN TITLE: ...) and the editorial deck/summary. "
+            f"Then CONFIDENCE and TAGS lines."
         )
-        if r.status_code != 200:
-            raise HTTPException(status_code=r.status_code, detail=f"Groq: {r.text}")
-        return _json.loads(r.json()["choices"][0]["message"]["content"])
+        raw_summary = await _groq_chat(
+            [{"role": "system", "content": JOURNALIST_SYSTEM}, {"role": "user", "content": summary_prompt}],
+            max_tokens=550,
+            model=model,
+            purpose="parse_summary"
+        )
+
+        result: dict = {}
+
+        if raw_summary:
+            title_m = re.search(r'REWRITTEN TITLE:\s*(.+)$', raw_summary, re.I | re.M)
+            rewritten_title = title_m.group(1).strip() if title_m else None
+            summary = raw_summary
+            if rewritten_title:
+                summary = re.sub(r'REWRITTEN TITLE:.+$', '', summary, flags=re.I | re.M)
+                rewritten_title = re.sub(r'["\']', '', rewritten_title).strip()
+                result["title"] = rewritten_title
+
+            conf_m = re.search(r'CONFIDENCE:\s*(high|medium|low)', summary, re.I)
+            tags_m = re.search(r'TAGS:\s*(.+)$', summary, re.I | re.M)
+            summary = re.sub(r'CONFIDENCE:\s*(high|medium|low).*', '', summary, flags=re.I | re.S)
+            summary = re.sub(r'TAGS:.+$', '', summary, flags=re.I | re.M).strip()
+            confidence = conf_m.group(1).lower() if conf_m else "medium"
+            tags = [t.strip() for t in tags_m.group(1).split(",")][:6] if tags_m else []
+            score = {"high": 90, "medium": 65, "low": 35}.get(confidence, 65)
+            result["aiSummary"] = summary if len(summary) > 20 else None
+            result["aiTags"] = tags
+            result["newsValueScore"] = score
+
+        # ── Call 2: Full 4-paragraph article ─────────────────────────────────
+        article_prompt = (
+            f"The editor has provided the following article draft and tuning instructions.\n"
+            f"Rewrite the COMPLETE full editorial article following all four-paragraph rules.\n\n"
+            f"{raw_text[:3000]}\n\n"
+            f"Write the COMPLETE full editorial article. You MUST write all 4 full paragraphs with at least 350 words total — "
+            f"do NOT stop early. Structure: Lede → Core Facts → Significance → Leonida Take. "
+            f"Each paragraph must be at least 2-3 sentences long. Do not cut the article short."
+        )
+        full = await _groq_chat(
+            [{"role": "system", "content": FULL_ARTICLE_SYSTEM}, {"role": "user", "content": article_prompt}],
+            max_tokens=1500,
+            model=model,
+            purpose="parse_full_article"
+        )
+        if full and len(full.strip()) > 80:
+            paras = _split_dense_paragraphs(full.strip(), max_words=140)
+            while len(paras) < 4:
+                paras.append(paras[-1] if paras else "Further analysis from Leonida Vice field correspondents is forthcoming.")
+            result["aiContent"] = "\n\n".join(paras)
+
+        if not result:
+            raise HTTPException(status_code=500, detail="AI returned no content")
+
+        return result
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        GROQ_API_KEY = original_key
 
 # ══════════════════════════════════════════════════════════════════════════════
 # OG IMAGE GENERATOR

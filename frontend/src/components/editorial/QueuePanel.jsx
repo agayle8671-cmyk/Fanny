@@ -103,7 +103,7 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
   // Re-Prompt sandbox proxy call
   const triggerRePrompt = async () => {
     if (!tuningPrompt.trim()) return;
-    setRepprompting(true);
+    setReprompting(true);
     try {
       const payload = {
         rawText: `Headline: "${editorTitle}"\nSummary: "${editorSummary}"\nContent:\n${editorParagraphs.join("\n\n")}\n\nInstructions: ${tuningPrompt}`,
@@ -116,15 +116,9 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
         if (res.title) setEditorTitle(res.title);
         if (res.category) setEditorCategory(res.category);
         if (res.aiSummary) setEditorSummary(res.aiSummary);
-        if (res.heroImage) setEditorHeroImage(res.heroImage);
         if (res.newsValueScore) setEditorScore(res.newsValueScore);
         
-        if (res.body && Array.isArray(res.body)) {
-          const bodyParas = res.body
-            .filter(b => b.type === "lead" || b.type === "p")
-            .map(b => b.text);
-          if (bodyParas.length > 0) setEditorParagraphs(bodyParas);
-        } else if (res.aiContent) {
+        if (res.aiContent) {
           const paras = res.aiContent
             .split(/\n+/)
             .map(p => p.trim())
@@ -135,7 +129,7 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
         setTuningPrompt("");
       }
     } catch (_) {}
-    setRepprompting(false);
+    setReprompting(false);
   };
 
   // Save current active edit state to backend
