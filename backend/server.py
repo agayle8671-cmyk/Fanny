@@ -251,6 +251,129 @@ async def _fetch_rss(source: dict) -> List[dict]:
         })
     return results
 
+# ──────────────────────────────────────────────────────────────────────────────
+# COGNITIVE IMAGE SCRAPING AND CURATION SIDECAR (CISCS) UTILITIES
+# ──────────────────────────────────────────────────────────────────────────────
+async def verify_image_resolution_stream(image_url: str, min_width: int = 800, min_height: int = 450) -> bool:
+    """
+    Decodes image dimensions incrementally from the initial byte headers using PIL.ImageFile.Parser
+    to avoid full payload downloads. Restricts range requests to 32KB.
+    Ensures the image is in landscape mode (width > height) and meets HD limits.
+    """
+    import httpx
+    from PIL import ImageFile
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Range": "bytes=0-32768"
+    }
+    try:
+        async with httpx.AsyncClient(timeout=6, follow_redirects=True, headers=headers) as client:
+            async with client.stream("GET", image_url) as r:
+                if r.status_code not in (200, 206):
+                    return False
+                
+                parser = ImageFile.Parser()
+                bytes_read = 0
+                async for chunk in r.iter_bytes(chunk_size=1024):
+                    parser.feed(chunk)
+                    bytes_read += len(chunk)
+                    if parser.image:
+                        width, height = parser.image.size
+                        # Enforce landscape and minimal dimensions
+                        if width > height and width >= min_width and height >= min_height:
+                            return True
+                        return False
+                    if bytes_read > 65536:  # Escape if we read more than 64KB and still no header
+                        break
+        return False
+    except Exception:
+        return False
+
+
+async def _get_image_dhash_from_url(image_url: str) -> Optional[str]:
+    """
+    Downloads raw image in memory and calculates a 64-bit Difference Hash (dHash) hex string
+    to check visual similarity. Uses LANCZOS horizontal gradient computation on a grayscale 9x8 matrix.
+    """
+    import httpx
+    from PIL import Image
+    import io
+    try:
+        async with httpx.AsyncClient(timeout=8, follow_redirects=True) as client:
+            r = await client.get(image_url)
+        if r.status_code != 200:
+            return None
+        
+        img = Image.open(io.BytesIO(r.content)).convert("L")
+        img = img.resize((9, 8), Image.Resampling.LANCZOS)
+        pixels = list(img.getdata())
+        
+        difference = []
+        for row in range(8):
+            for col in range(8):
+                pixel_left = pixels[row * 9 + col]
+                pixel_right = pixels[row * 9 + col + 1]
+                difference.append(pixel_left > pixel_right)
+        
+        decimal_val = 0
+        for bit in difference:
+            decimal_val = (decimal_val << 1) | int(bit)
+        
+        return f"{decimal_val:016x}"
+    except Exception:
+        return None
+
+
+def _hamming_distance(h1: str, h2: str) -> int:
+    """Calculates bitwise Hamming distance between two 64-bit hex strings."""
+    if not h1 or not h2:
+        return 99
+    try:
+        val1 = int(h1, 16)
+        val2 = int(h2, 16)
+        xor_val = val1 ^ val2
+        return bin(xor_val).count('1')
+    except Exception:
+        return 99
+
+
+async def search_fallback_images_ddg(query: str) -> list:
+    """
+    Queries DuckDuckGo's free Image API to source verified high-resolution widescreen GTA VI mirrors
+    when page assets are unavailable or fail the HD validation gates.
+    """
+    import httpx
+    import re
+    import urllib.parse
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    }
+    try:
+        url = f"https://duckduckgo.com/?q={urllib.parse.quote(query)}&iax=images&ia=images"
+        async with httpx.AsyncClient(timeout=8, follow_redirects=True, headers=headers) as client:
+            r = await client.get(url)
+        if r.status_code != 200:
+            return []
+        
+        vqd_match = re.search(r'vqd=([0-9\-]+)', r.text)
+        if not vqd_match:
+            return []
+        vqd = vqd_match.group(1)
+        
+        api_url = f"https://duckduckgo.com/i.js?l=us-en&o=json&q={urllib.parse.quote(query)}&vqd={vqd}&f=,,,"
+        async with httpx.AsyncClient(timeout=8, follow_redirects=True, headers=headers) as client:
+            r2 = await client.get(api_url)
+        if r2.status_code != 200:
+            return []
+        
+        data = r2.json()
+        results = data.get("results", [])
+        return [item["image"] for item in results if "image" in item]
+    except Exception as e:
+        logger.warning(f"[SearchFallback] DuckDuckGo query failed: {e}")
+        return []
+
+
 async def _fetch_article_images(url: str, existing_thumb: Optional[str] = None) -> tuple:
     """
     Scrape the article source page and return (hero_image, body_image).
@@ -323,34 +446,36 @@ async def _fetch_article_images(url: str, existing_thumb: Optional[str] = None) 
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
         async with httpx.AsyncClient(timeout=12, follow_redirects=True, headers=headers) as cli:
             r = await cli.get(url)
-        if r.status_code != 200:
-            return (_upgrade_to_hd(existing_thumb) if existing_thumb else None, None)
-        html = r.text
+        
+        html = r.text if r.status_code == 200 else ""
+        og_image = None
+        img_srcs = []
 
-        # 1. Extract og:image as hero candidate
-        og_match = re.search(
-            r'<meta[^>]+(?:property=["\']og:image["\']|name=["\']og:image["\'])[^>]*content=["\']([^"\']+)["\']',
-            html, re.I
-        )
-        if not og_match:
+        if html:
+            # 1. Extract og:image as hero candidate
             og_match = re.search(
-                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]*(?:property=["\']og:image["\']|name=["\']og:image["\'])',
+                r'<meta[^>]+(?:property=["\']og:image["\']|name=["\']og:image["\'])[^>]*content=["\']([^"\']+)["\']',
                 html, re.I
             )
-        og_image = og_match.group(1).strip() if og_match else None
+            if not og_match:
+                og_match = re.search(
+                    r'<meta[^>]+content=["\']([^"\']+)["\'][^>]*(?:property=["\']og:image["\']|name=["\']og:image["\'])',
+                    html, re.I
+                )
+            og_image = og_match.group(1).strip() if og_match else None
 
-        # 2. Extract ALL <img src> and srcset candidates from the page body
-        img_srcs = re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', html, re.I)
-        # Also grab srcset largest variants
-        srcsets = re.findall(r'srcset=["\']([^"\']+)["\']', html, re.I)
-        for srcset in srcsets:
-            # pick the last (largest) entry in each srcset
-            parts = [p.strip().split()[0] for p in srcset.split(',') if p.strip()]
-            if parts:
-                img_srcs.append(parts[-1])
+            # 2. Extract ALL <img src> and srcset candidates from the page body
+            img_srcs = re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', html, re.I)
+            # Also grab srcset largest variants
+            srcsets = re.findall(r'srcset=["\']([^"\']+)["\']', html, re.I)
+            for srcset in srcsets:
+                # pick the last (largest) entry in each srcset
+                parts = [p.strip().split()[0] for p in srcset.split(',') if p.strip()]
+                if parts:
+                    img_srcs.append(parts[-1])
 
-        # Normalize relative URLs
-        img_srcs = [urljoin(url, s) for s in img_srcs]
+            # Normalize relative URLs
+            img_srcs = [urljoin(url, s) for s in img_srcs]
 
         # Filter: valid images only
         candidates = [s for s in img_srcs if _is_valid_img(s)]
@@ -375,17 +500,74 @@ async def _fetch_article_images(url: str, existing_thumb: Optional[str] = None) 
         if not hero and unique_candidates:
             hero = unique_candidates[0]
 
+        # Stage 4 Resolution check on hero candidate
+        if hero:
+            is_hero_hd = await verify_image_resolution_stream(hero, min_width=800, min_height=450)
+            if not is_hero_hd:
+                hero = None
+
+        # Stage 5 Uniqueness dHash filtering for body candidates
+        hero_hash = await _get_image_dhash_from_url(hero) if hero else None
         hero_clean = _clean_url_for_compare(hero) if hero else ""
 
-        # Pick body image: first candidate that is mathematically unique from hero
         body = None
+        hd_body_candidates = []
+        
         for c in unique_candidates:
             c_clean = _clean_url_for_compare(c)
             if c_clean and c_clean != hero_clean:
-                body = c
-                break
+                # Resolution stream check
+                if await verify_image_resolution_stream(c, min_width=800, min_height=450):
+                    hd_body_candidates.append(c)
 
-        # Double check to ensure we got two unique images
+        for c in hd_body_candidates:
+            c_hash = await _get_image_dhash_from_url(c)
+            if c_hash and hero_hash:
+                dist = _hamming_distance(hero_hash, c_hash)
+                if dist < 10:  # Visual duplicate / near-identical frames
+                    continue
+            body = c
+            break
+
+        # Fallback Sourcing: If we are missing either the hero or the body, query DuckDuckGo Fallback search!
+        if not hero or not body:
+            parsed_url = urlparse(url)
+            domain_words = [w for w in parsed_url.netloc.split('.') if w not in ('www', 'com', 'org', 'net', 'co', 'uk', 'news')]
+            search_domain = domain_words[0] if domain_words else "GTA 6"
+            
+            query = f"{search_domain} GTA 6 Lucia Jason Leonida screenshots HD"
+            logger.info(f"[SearchFallback] Sourcing visual mirrors for query: '{query}'")
+            
+            search_results = await search_fallback_images_ddg(query)
+            
+            search_hd_candidates = []
+            for s_img in search_results:
+                s_hd = _upgrade_to_hd(s_img)
+                if _is_valid_img(s_hd):
+                    if await verify_image_resolution_stream(s_hd, min_width=1024, min_height=576):
+                        search_hd_candidates.append(s_hd)
+            
+            # Backfill hero if missing
+            if not hero and search_hd_candidates:
+                hero = search_hd_candidates[0]
+                hero_hash = await _get_image_dhash_from_url(hero)
+                hero_clean = _clean_url_for_compare(hero)
+                search_hd_candidates = search_hd_candidates[1:]
+            
+            # Backfill body if missing
+            if not body and search_hd_candidates:
+                for c in search_hd_candidates:
+                    c_clean = _clean_url_for_compare(c)
+                    if c_clean and c_clean != hero_clean:
+                        c_hash = await _get_image_dhash_from_url(c)
+                        if c_hash and hero_hash:
+                            dist = _hamming_distance(hero_hash, c_hash)
+                            if dist < 10:
+                                continue
+                        body = c
+                        break
+
+        # Final safety check: Ensure hero and body are completely distinct
         if hero and body:
             if _clean_url_for_compare(hero) == _clean_url_for_compare(body):
                 body = None
