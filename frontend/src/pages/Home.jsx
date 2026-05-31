@@ -37,7 +37,7 @@ const Home = () => {
 
   useEffect(() => {
     let alive = true;
-    api.listArticles({ limit: 12 }).then((res) => {
+    api.listArticles({ limit: 20 }).then((res) => {
       if (!alive) return;
       const backendItems = (res?.items || []).map(normalizeArticle);
       const merged = [...localArticles.map(normalizeArticle)];
@@ -96,7 +96,8 @@ const Home = () => {
     );
   };
 
-  const heroArticles = allArticles.slice(0, 5);
+  // Top 8 most recent articles that have a hero image for the carousel
+  const heroArticles = allArticles.filter(a => a.heroImage || a.imageThumbnail).slice(0, 8);
 
   return (
     <div data-testid="home-page" className="bg-[#050505] text-white">

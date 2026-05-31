@@ -1120,7 +1120,16 @@ async def list_articles(
     query: Dict[str, Any] = {"status": "published"}
     if category:
         query["category"] = category
-    cursor = db.scraped_articles.find(query, {"_id": 0}).sort("publishedAt", -1).skip(offset).limit(limit)
+    # Sort by approvedAt first (Editorial Desk approvals), then publishedAt fallback.
+    # Articles approved via the CMS set approvedAt; RSS-ingested articles set publishedAt.
+    # Using a compound sort ensures newest content always surfaces first.
+    cursor = (
+        db.scraped_articles
+        .find(query, {"_id": 0})
+        .sort([("approvedAt", -1), ("publishedAt", -1)])
+        .skip(offset)
+        .limit(limit)
+    )
     items = await cursor.to_list(length=limit)
     total = await db.scraped_articles.count_documents(query)
     return {"items": items, "total": total, "limit": limit, "offset": offset}
@@ -1128,9 +1137,12 @@ async def list_articles(
 @api_router.get("/articles/trending")
 async def trending_articles(limit: int = Query(10, ge=1, le=50)):
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+    # Sort by approvedAt first (Editorial Desk approvals), then publishedAt fallback.
+    # Articles approved via the CMS set approvedAt; RSS-ingested articles set publishedAt.
+    # Using a compound sort ensures newest content always surfaces first.
     cursor = db.scraped_articles.find(
         {"status": "published", "publishedAt": {"$gte": cutoff}}, {"_id": 0}
-    ).sort("newsValueScore", -1).limit(limit)
+    ).sort([("approvedAt", -1), ("publishedAt", -1), ("newsValueScore", -1)]).limit(limit)
     items = await cursor.to_list(length=limit)
     if not items:
         cursor = db.scraped_articles.find({"status": "published"}, {"_id": 0}).sort("newsValueScore", -1).limit(limit)
