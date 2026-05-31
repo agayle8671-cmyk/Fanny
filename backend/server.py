@@ -119,7 +119,7 @@ _scraper_running = False
 _last_run_id: Optional[str] = None
 
 # Max NEW articles ingested per scraper run (keeps Groq usage under control)
-DAILY_ARTICLE_CAP = 10
+DAILY_ARTICLE_CAP = 50
 
 def _url_hash(url: str) -> str:
     return hashlib.sha256(url.encode()).hexdigest()[:16]
@@ -687,21 +687,21 @@ async def run_scraper_pipeline(is_manual: bool = False) -> str:
                 items = await _fetch_rss(src)
                 articles_found += len(items)
 
-                for item in items[:src.get("quota", 5)]:
+                # Process all items in the feed instead of restricting to the small quota cap
+                for item in items:
                     if not is_manual and articles_new >= DAILY_ARTICLE_CAP:
                         break
                     title   = item["title"]
                     excerpt = item.get("excerpt") or ""
 
-                    # GTA6 relevance gate (YouTube sources skip checks; Web feeds run fast regex + Option C Groq filter)
+                    # GTA6 relevance gate (YouTube sources skip checks; Web feeds run fast regex filter)
                     is_yt = src.get("type") == "youtube"
                     if not is_yt:
+                        # We use quota value for keyword sensitivity matching
                         if not _is_gta6_relevant(title, excerpt, src.get("quota", 5)):
                             continue
-                        # Stage 2: AI relevance check (Option C)
-                        if not await _is_gta6_relevant_ai(title, excerpt):
-                            logger.info(f"[Scraper] Skipping off-topic feed item: {title[:60]}")
-                            continue
+                        # Stage 2: AI relevance check bypassed for wider queue coverage and faster scrape speeds.
+                        # You can manually approve or reject articles in the Editorial Desk.
 
                     url_hash = item["url_hash"]
 
