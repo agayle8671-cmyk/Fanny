@@ -50,6 +50,12 @@ All images MUST be HD quality and scraped directly from the same source website 
 
 ## Rules for Dynamic Articles (from scraper/API)
 - Source text: `aiContent` field split by `\n` into paragraphs
+- AI produces 4 paragraphs: `[0]`=Lede, `[1]`=Core Facts, `[2]`=Significance, `[3]`=Leonida Take
+- Layout mapping in `normalizeArticle()`:
+  - Drop-cap lead → `aiSummary` (editorial deck)
+  - Core Intel Briefing → `[0]` (Lede) + `[1]` (Core Facts)
+  - Why It Matters → `[2]` (Significance)
+  - Leonida Take & Context → `[3]` (Leonida Take)
 - If `aiContent` is missing, use `excerpt` + filler paragraph
 - `body: []` from the API is ALWAYS overridden — `normalizeArticle()` in `Article.jsx` builds the layout from scratch
 - Author always defaults to `"Leonida Vice"` if null

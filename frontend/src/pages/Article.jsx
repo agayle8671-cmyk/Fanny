@@ -39,43 +39,50 @@ function normalizeArticle(a) {
 
   // Construct structured layout blocks (3 paragraphs, 3 sections, pullquote, and 2 unique images)
   const bodyBlocks = [];
-  
-  // 1. Lead paragraph
+
+  // The AI writes 4 paragraphs in this order:
+  //   [0] = LEDE (one punchy sentence)
+  //   [1] = CORE FACTS (longest paragraph)
+  //   [2] = SIGNIFICANCE (why it matters)
+  //   [3] = LEONIDA TAKE (editorial voice)
+  //
+  // Layout mapping:
+  //   Lead drop-cap  → aiSummary deck (the editorial summary, not the lede)
+  //   Core Intel     → [0] lede + [1] core facts
+  //   Why It Matters → [2] significance
+  //   Leonida Take   → [3] leonida take
+
+  // 1. Lead paragraph (drop-cap) — use the editorial deck/summary
   bodyBlocks.push({
     type: "lead",
-    text: a.aiSummary || a.excerpt || "Intel report pending."
+    text: a.aiSummary || a.excerpt || rawParagraphs[0] || "Intel report pending."
   });
 
-  // 2. Section 1: Core Briefing
-  bodyBlocks.push({
-    type: "h2",
-    text: "Core Intel Briefing"
-  });
-  bodyBlocks.push({
-    type: "p",
-    text: rawParagraphs[0]
-  });
+  // 2. Section 1: Core Intel Briefing — lede [0] + core facts [1]
+  bodyBlocks.push({ type: "h2", text: "Core Intel Briefing" });
+  // If we have at least 2 paragraphs, show lede then core facts separately
+  if (rawParagraphs.length >= 2) {
+    bodyBlocks.push({ type: "p", text: rawParagraphs[0] }); // LEDE
+    bodyBlocks.push({ type: "p", text: rawParagraphs[1] }); // CORE FACTS
+  } else {
+    bodyBlocks.push({ type: "p", text: rawParagraphs[0] });
+  }
 
-  // Pull Quote using the AI summary/excerpt
+  // Pull Quote — from the aiSummary deck
   const summaryLine = a.aiSummary || a.excerpt || rawParagraphs[0];
   bodyBlocks.push({
     type: "pull",
     text: summaryLine.length > 130 ? summaryLine.slice(0, 130) + "..." : summaryLine
   });
 
-  // 3. Section 2: Why It Matters
-  bodyBlocks.push({
-    type: "h2",
-    text: "Why It Matters"
-  });
+  // 3. Section 2: Why It Matters — significance paragraph [2]
+  bodyBlocks.push({ type: "h2", text: "Why It Matters" });
   bodyBlocks.push({
     type: "p",
-    text: rawParagraphs[1]
+    text: rawParagraphs[2] || rawParagraphs[1] || rawParagraphs[0]
   });
 
-  // Body image: use the scraped unique source image stored in DB
-  // (never a fallback pool — if bodyImage is missing the article never gets published)
-  const heroUrl = a.heroImage || a.imageThumbnail || a.videoThumbnail || null;
+  // Body image
   const bodyImageSrc = a.bodyImage || null;
   bodyBlocks.push({
     type: "image",
@@ -83,22 +90,16 @@ function normalizeArticle(a) {
     caption: `Field intelligence: ${(a.aiTags && a.aiTags[0]) ? a.aiTags[0] + ' coverage' : (a.category || 'Leonida') + ' bureau'} — ${new Date(a.publishedAt || a.approvedAt || Date.now()).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}.`
   });
 
-  // 4. Section 3: Leonida Take & Context
-  bodyBlocks.push({
-    type: "h2",
-    text: "Leonida Take & Context"
-  });
+  // 4. Section 3: Leonida Take & Context — leonida take paragraph [3]
+  bodyBlocks.push({ type: "h2", text: "Leonida Take & Context" });
   bodyBlocks.push({
     type: "p",
-    text: rawParagraphs[2]
+    text: rawParagraphs[3] || rawParagraphs[2] || rawParagraphs[1] || rawParagraphs[0]
   });
 
-  // 5. Place any remaining paragraphs at the end
-  for (let i = 3; i < rawParagraphs.length; i++) {
-    bodyBlocks.push({
-      type: "p",
-      text: rawParagraphs[i]
-    });
+  // 5. Any extra paragraphs beyond [3] appended at the end
+  for (let i = 4; i < rawParagraphs.length; i++) {
+    bodyBlocks.push({ type: "p", text: rawParagraphs[i] });
   }
 
   return {
