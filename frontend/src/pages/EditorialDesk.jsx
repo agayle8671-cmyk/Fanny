@@ -130,12 +130,17 @@ export default function EditorialDesk() {
   const [apiKey, setApiKey] = useState(() => localStorage.getItem(STORAGE_KEY) || DEFAULT_KEY);
   const [tab, setTab] = useState("queue");
   const [stats, setStats] = useState(null);
+  const [groqUsage, setGroqUsage] = useState(null);
 
   const loadStats = useCallback(async () => {
     if (!apiKey) return;
     try {
-      const d = await apiCall("/editorial/stats", apiKey);
+      const [d, gu] = await Promise.all([
+        apiCall("/editorial/stats", apiKey),
+        apiCall("/editorial/groq-usage", apiKey).catch(() => null)
+      ]);
       if (d.pending !== undefined) setStats(d);
+      if (gu) setGroqUsage(gu);
     } catch (_) {}
   }, [apiKey]);
 
@@ -201,6 +206,37 @@ export default function EditorialDesk() {
                   </span>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Groq Token Budget Bar */}
+          {groqUsage && (
+            <div className="mx-4 my-2 p-3 bg-[#1c1c22]/30 border border-white/5 rounded-xl">
+              <div className="flex justify-between items-center mb-1.5">
+                <span className="text-[8px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#05d9e8] animate-pulse" />
+                  Groq Token Budget
+                </span>
+                <span className="text-[9px] font-display font-bold text-zinc-400">
+                  {Math.round((groqUsage.tokens_used_today / groqUsage.daily_token_limit) * 100)}%
+                </span>
+              </div>
+              <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden mb-2">
+                <div
+                  className="h-full bg-gradient-to-r from-[#05d9e8] to-[#ff2a6d] transition-all duration-500"
+                  style={{
+                    width: `${Math.min(100, (groqUsage.tokens_used_today / groqUsage.daily_token_limit) * 100)}%`,
+                  }}
+                />
+              </div>
+              <div className="flex justify-between text-[8px] font-medium text-zinc-500 uppercase">
+                <span>
+                  {groqUsage.tokens_used_today.toLocaleString()} / {groqUsage.daily_token_limit.toLocaleString()} TPD
+                </span>
+                <span>
+                  {groqUsage.requests_used_today} reqs
+                </span>
+              </div>
             </div>
           )}
 

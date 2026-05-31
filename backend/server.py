@@ -157,6 +157,7 @@ async def _is_gta6_relevant_ai(title: str, excerpt: str) -> bool:
         ans = await _groq_chat(
             [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
             max_tokens=5,
+            purpose="relevance_check"
         )
         if ans and "yes" in ans.lower():
             return True
@@ -873,8 +874,8 @@ RULES:
 - Frame the piece as a professional staff writer analyzing external reports. Do NOT claim to have broken the story or conducted primary investigative reporting.
 - Explicitly attribute direct quotes, exclusive details, or major claims to the original Source (e.g., "speaking to [Source]", "as reported by [Source]") so the reader knows where the information originated."""
 
-async def _groq_chat(messages: list, max_tokens: int = 300, model: str = "llama-3.3-70b-versatile") -> Optional[str]:
-    """Call Groq API. Returns content string or None on failure."""
+async def _groq_chat(messages: list, max_tokens: int = 300, model: str = "llama-3.3-70b-versatile", purpose: str = "general") -> Optional[str]:
+    """Call Groq API. Returns content string or None on failure and logs token usage to MongoDB."""
     key = GROQ_API_KEY
     if not key:
         return None
@@ -895,7 +896,27 @@ async def _groq_chat(messages: list, max_tokens: int = 300, model: str = "llama-
         if r.status_code != 200:
             logger.warning(f"[Groq] HTTP {r.status_code}: {r.text[:200]}")
             return None
-        return r.json()["choices"][0]["message"]["content"]
+        
+        resp_json = r.json()
+        content = resp_json["choices"][0]["message"]["content"]
+        
+        # Log token usage to MongoDB
+        usage = resp_json.get("usage")
+        if usage:
+            try:
+                now_iso = datetime.now(timezone.utc).isoformat()
+                await db.groq_usage.insert_one({
+                    "timestamp": now_iso,
+                    "model": model,
+                    "purpose": purpose,
+                    "prompt_tokens": usage.get("prompt_tokens", 0),
+                    "completion_tokens": usage.get("completion_tokens", 0),
+                    "total_tokens": usage.get("total_tokens", 0)
+                })
+            except Exception as ex:
+                logger.warning(f"[Groq Usage log] Failed to save usage log: {ex}")
+                
+        return content
     except Exception as e:
         logger.warning(f"[Groq] Error: {e}")
         return None
@@ -955,6 +976,7 @@ async def ai_summarize(article: dict, groq_key: Optional[str] = None) -> dict:
         raw = await _groq_chat(
             [{"role": "system", "content": JOURNALIST_SYSTEM}, {"role": "user", "content": user_prompt}],
             max_tokens=400,
+            purpose="summary"
         )
         if raw:
             title_m = re.search(r'REWRITTEN TITLE:\s*(.+)$', raw, re.I | re.M)
@@ -986,6 +1008,7 @@ async def ai_summarize(article: dict, groq_key: Optional[str] = None) -> dict:
         full = await _groq_chat(
             [{"role": "system", "content": FULL_ARTICLE_SYSTEM}, {"role": "user", "content": full_prompt}],
             max_tokens=750,
+            purpose="full_article"
         )
         if full and len(full.strip()) > 80:
             # Enforce paragraph density: split any block > 140 words, ensure >= 3 paragraphs
@@ -1229,6 +1252,75 @@ async def editorial_stats(_: bool = Depends(require_editorial_key)):
         db.scraped_articles.count_documents({"status": "published", "approvedAt": {"$gte": cutoff_24h}}),
     )
     return {"pending": pending, "published": published, "rejected": rejected, "todayPublished": today_pub}
+
+@api_router.get("/editorial/groq-usage")
+async def get_groq_usage(_: bool = Depends(require_editorial_key)):
+    now = datetime.now(timezone.utc)
+    start_of_today = datetime(now.year, now.month, now.day, tzinfo=timezone.utc).isoformat()
+    
+    pipeline_today = [
+        {"$match": {"timestamp": {"$gte": start_of_today}}},
+        {"$group": {
+            "_id": None,
+            "total_tokens": {"$sum": "$total_tokens"},
+            "prompt_tokens": {"$sum": "$prompt_tokens"},
+            "completion_tokens": {"$sum": "$completion_tokens"},
+            "request_count": {"$sum": 1}
+        }}
+    ]
+    
+    pipeline_total = [
+        {"$group": {
+            "_id": None,
+            "total_tokens": {"$sum": "$total_tokens"},
+            "prompt_tokens": {"$sum": "$prompt_tokens"},
+            "completion_tokens": {"$sum": "$completion_tokens"},
+            "request_count": {"$sum": 1}
+        }}
+    ]
+    
+    pipeline_by_purpose = [
+        {"$match": {"timestamp": {"$gte": start_of_today}}},
+        {"$group": {
+            "_id": "$purpose",
+            "tokens": {"$sum": "$total_tokens"},
+            "requests": {"$sum": 1}
+        }}
+    ]
+    
+    try:
+        today_res = await db.groq_usage.aggregate(pipeline_today).to_list(length=1)
+        total_res = await db.groq_usage.aggregate(pipeline_total).to_list(length=1)
+        purpose_res = await db.groq_usage.aggregate(pipeline_by_purpose).to_list(length=100)
+    except Exception as ex:
+        logger.warning(f"[Groq Usage Stats] Aggregation failed: {ex}")
+        today_res, total_res, purpose_res = [], [], []
+        
+    t_today = today_res[0] if today_res else {}
+    t_total = total_res[0] if total_res else {}
+    
+    by_purpose = {}
+    for item in purpose_res:
+        p = item["_id"] or "unknown"
+        by_purpose[p] = {
+            "tokens": item["tokens"],
+            "requests": item["requests"]
+        }
+        
+    return {
+        "daily_token_limit": 100000,       # Groq Llama-3.3-70b Free Tier Cap
+        "daily_request_limit": 1000,       # Groq Free Tier requests cap
+        
+        "tokens_used_today": t_today.get("total_tokens", 0),
+        "prompt_tokens_today": t_today.get("prompt_tokens", 0),
+        "completion_tokens_today": t_today.get("completion_tokens", 0),
+        "requests_used_today": t_today.get("request_count", 0),
+        
+        "tokens_used_total": t_total.get("total_tokens", 0),
+        "requests_used_total": t_total.get("request_count", 0),
+        
+        "by_purpose_today": by_purpose
+    }
 
 # ── Queue ─────────────────────────────────────────────────────────────────────
 @api_router.get("/editorial/queue")
