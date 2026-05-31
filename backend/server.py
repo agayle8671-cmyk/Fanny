@@ -2264,6 +2264,53 @@ async def repair_images_endpoint(background_tasks: BackgroundTasks, _: bool = De
     background_tasks.add_task(_do_repair)
     return {"success": True, "message": "Image repair sweep started in background"}
 
+# ── Live Image Search Scraper ─────────────────────────────────────────────────
+@api_router.post("/editorial/scrape-live-images")
+async def scrape_live_images(body: dict, _: bool = Depends(require_editorial_key)):
+    """
+    Scrapes real-time widescreen gaming assets from across the web based on the user's custom query.
+    Returns a validated list of direct image URLs.
+    """
+    query = body.get("query")
+    if not query:
+        raise HTTPException(status_code=400, detail="Search query is required")
+        
+    logger.info(f"[LiveScraper] On-demand scrape requested for: '{query}'")
+    candidates = await search_fallback_images_ddg(query)
+    
+    # Run a fast parallel reachability check so we filter out broken or tiny images
+    import httpx
+    valid_images = []
+    
+    async def _check_candidate(url):
+        try:
+            # Upgrade common CDN URLs to HD instantly
+            url = _upgrade_to_hd(url)
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
+            async with httpx.AsyncClient(timeout=1.5, follow_redirects=True, headers=headers) as client:
+                res = await client.head(url)
+                if res.status_code in (200, 206):
+                    ct = res.headers.get("content-type", "")
+                    cl = int(res.headers.get("content-length", 0))
+                    # Avoid tiny assets, tracking pixels, or icons
+                    if "image" in ct and cl > 4000:
+                        return url
+        except Exception:
+            pass
+        return None
+
+    # Limit to checking top 18 images for high responsiveness
+    tasks = [_check_candidate(url) for url in candidates[:18]]
+    results = await asyncio.gather(*tasks)
+    
+    valid_images = [r for r in results if r]
+    
+    # Fallback to the raw candidates if all checks failed (unlikely but safe)
+    if not valid_images:
+        valid_images = candidates[:15]
+        
+    return {"success": True, "images": valid_images}
+
 # ── Sources management ────────────────────────────────────────────────────────
 @api_router.get("/editorial/sources")
 async def list_sources(_: bool = Depends(require_editorial_key)):
