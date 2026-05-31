@@ -377,29 +377,53 @@ async def search_fallback_images_ddg(query: str) -> list:
     """
     Image fallback search using Bing Image Search scrape (DDG changed their API).
     Returns a list of direct image URLs matching the query.
+    Bypasses WAF blocks using clean URLs and browser-replica headers.
     """
     import httpx
     import urllib.parse
+    
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
         "Accept-Language": "en-US,en;q=0.9",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Ch-Ua": '"Not-A.Brand";v="99", "Chromium";v="124", "Google Chrome";v="124"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"',
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Cache-Control": "max-age=0"
     }
+    
     try:
         encoded = urllib.parse.quote(query)
-        url = f"https://www.bing.com/images/search?q={encoded}&form=HDRSC2&first=1&tsc=ImageHoverTitle"
+        # Use clean URL (no tracking params) to avoid trigger redirects to trending/bot layouts
+        url = f"https://www.bing.com/images/search?q={encoded}"
         async with httpx.AsyncClient(timeout=10, follow_redirects=True, headers=headers) as client:
             r = await client.get(url)
         if r.status_code != 200:
             logger.warning(f"[SearchFallback] Bing image search returned {r.status_code}")
             return []
-        # Extract murl (direct image url) values from Bing image result JSON blobs
-        img_urls = re.findall(r'murl&quot;:&quot;(https://[^&]+\.(?:jpg|jpeg|png|webp))&quot;', r.text, re.I)
-        if not img_urls:
-            # fallback regex for unescaped JSON
-            img_urls = re.findall(r'"murl":"(https://[^"]+\.(?:jpg|jpeg|png|webp))"', r.text, re.I)
-        logger.info(f"[SearchFallback] Bing returned {len(img_urls)} image candidates for query: '{query}'")
-        return img_urls[:20]  # cap at 20 to keep pipeline fast
+            
+        # Parse using robust patterns
+        murls = re.findall(r'murl&quot;:&quot;(https://[^&]+?)&quot;', r.text, re.I)
+        if not murls:
+            murls = re.findall(r'"murl":"(https://[^"]+?)"', r.text, re.I)
+            
+        cleaned_urls = []
+        for m in murls:
+            u_clean = m.replace("\\/", "/")
+            # Filter to make sure it contains an image extension
+            path = u_clean.split("?")[0].lower()
+            if any(ext in path for ext in (".jpg", ".jpeg", ".png", ".webp")):
+                if u_clean not in cleaned_urls:
+                    cleaned_urls.append(u_clean)
+                    
+        logger.info(f"[SearchFallback] Bing returned {len(cleaned_urls)} image candidates for query: '{query}'")
+        return cleaned_urls[:25]  # cap at 25 to keep pipeline fast
     except Exception as e:
         logger.warning(f"[SearchFallback] Bing image search failed: {e}")
         return []
@@ -1487,18 +1511,21 @@ async def reprocess_article(article_id: str, body: dict = {}, _: bool = Depends(
         if not _is_globally_unique(candidate):
             logger.debug(f"[Reprocess] Hero candidate rejected (globally used): {candidate[:80]}")
             continue
-        # Quick URL validity check
-        try:
-            import httpx as _httpx
-            async with _httpx.AsyncClient(timeout=5, follow_redirects=True) as cli:
-                head = await cli.head(candidate)
-            if head.status_code not in (200, 206):
+        # Quick URL validity check (skip HEAD check for explicit image URLs to prevent CDN blocks)
+        has_ext = any(ext in candidate.split("?")[0].lower() for ext in ('.jpg', '.jpeg', '.png', '.webp'))
+        if not has_ext:
+            try:
+                import httpx as _httpx
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
+                async with _httpx.AsyncClient(timeout=4, follow_redirects=True, headers=headers) as cli:
+                    head = await cli.head(candidate)
+                if head.status_code not in (200, 206):
+                    continue
+                ct = head.headers.get("content-type", "")
+                if "image" not in ct:
+                    continue
+            except Exception:
                 continue
-            ct = head.headers.get("content-type", "")
-            if "image" not in ct and not any(ext in candidate.lower() for ext in ('.jpg', '.jpeg', '.png', '.webp')):
-                continue
-        except Exception:
-            continue
         final_hero = candidate
         used_image_basenames.add(_basename(candidate))  # mark as used for body dedup
         final_hero_hash = await _get_image_dhash_from_url(final_hero)
@@ -1533,18 +1560,21 @@ async def reprocess_article(article_id: str, body: dict = {}, _: bool = Depends(
                 if dist < 10:
                     logger.debug(f"[Reprocess] Body candidate rejected (visually similar, dist={dist}): {candidate[:80]}")
                     continue
-        # Quick reachability check
-        try:
-            import httpx as _httpx
-            async with _httpx.AsyncClient(timeout=5, follow_redirects=True) as cli:
-                head = await cli.head(candidate)
-            if head.status_code not in (200, 206):
+        # Quick reachability check (skip HEAD check for explicit image URLs to prevent CDN blocks)
+        has_ext = any(ext in candidate.split("?")[0].lower() for ext in ('.jpg', '.jpeg', '.png', '.webp'))
+        if not has_ext:
+            try:
+                import httpx as _httpx
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
+                async with _httpx.AsyncClient(timeout=4, follow_redirects=True, headers=headers) as cli:
+                    head = await cli.head(candidate)
+                if head.status_code not in (200, 206):
+                    continue
+                ct = head.headers.get("content-type", "")
+                if "image" not in ct:
+                    continue
+            except Exception:
                 continue
-            ct = head.headers.get("content-type", "")
-            if "image" not in ct and not any(ext in candidate.lower() for ext in ('.jpg', '.jpeg', '.png', '.webp')):
-                continue
-        except Exception:
-            continue
         final_body = candidate
         used_image_basenames.add(_basename(candidate))
         logger.info(f"[Reprocess] Body selected: {final_body[:100]}")
