@@ -7,7 +7,7 @@ const PLACEHOLDER_IMAGE = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org
 export const heroSlides = [
   {
     image:
-      "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/6dccb50f1f97f2f4f27319ab01773127d24f381cb080704869c46c535155b382.png",
+      "https://images.unsplash.com/photo-1614728894747-a83421e2b9c9?q=80&w=2400&auto=format&fit=crop",
     label: "Vice City · Skyline",
     accent: "#FF2A6D",
     cue: "Sunset over Tequesta",

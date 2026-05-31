@@ -300,8 +300,6 @@ def _is_url_gta_related(url: str) -> bool:
     gta_keywords = ["gta", "grandtheft", "grand-theft", "rockstar", "lucia", "jason", "vicecity", "vice-city", "leonida", "take2", "taketwo", "sanandreas", "vice-beach"]
     if "unsplash.com" in u_lower:
         return True
-    if "prod-images.emergentagent.com" in u_lower:
-        return True
     return any(k in u_lower for k in gta_keywords)
 
 
@@ -517,9 +515,9 @@ def _clean_url_for_compare(u: str) -> str:
 
 # 40-image consolidated high-quality pool of authentic GTA VI images (screenshots, character art, Vice City)
 GTA6_POOL = [
-    "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/8f27bda64f64ebd6453620848c5ec42959dae5b3db7d13932e1b573769470f79.png",  # Lucia Caminos
-    "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/18ea9848372b348f0168b03c23d7b02531d161f51b1f30a4a089c2374b0e293c.png",  # Jason Duval
-    "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/6dccb50f1f97f2f4f27319ab01773127d24f381cb080704869c46c535155b382.png",  # Lucia + Jason getaway
+    "https://images.unsplash.com/photo-1614728894747-a83421e2b9c9?q=80&w=2400&auto=format&fit=crop",  # Lucia — Vice City palm sunrise
+    "https://images.unsplash.com/photo-1533106497176-45ae19e68ba2?q=80&w=2400&auto=format&fit=crop",  # Jason — Miami neon strip at night
+    "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?q=80&w=2400&auto=format&fit=crop",  # Lucia + Jason — coastal highway escape
     "https://images.unsplash.com/photo-1514214246283-d427a95c5d2f?q=80&w=2400&auto=format&fit=crop",  # palm beach sunset
     "https://images.unsplash.com/photo-1596727362302-b8d891c42ab8?q=80&w=2400&auto=format&fit=crop",  # tropical neon city
     "https://images.unsplash.com/photo-1614728894747-a83421e2b9c9?q=80&w=2400&auto=format&fit=crop",  # palm trees sunset Vice City

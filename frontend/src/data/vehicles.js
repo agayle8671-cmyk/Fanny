@@ -44,7 +44,7 @@ export const vehicles = [
     category: "Muscle / Sports",
     manufacturer: "Bravado (fictional)",
     realInspiration: "Dodge Charger SRT",
-    image: "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/5901c6d5da9521145470f55d63b2fb41f95461de82f9c24102cc3ef2c388793b.png",
+    image: "https://images.unsplash.com/photo-1596639410348-8470f7fa9f84?q=80&w=1200&auto=format&fit=crop",
     stats: { speed: 90, acceleration: 87, handling: 75, braking: 72 },
     notes: "The default Vice City chase car. Returns with overhauled suspension behavior.",
   },

@@ -81,7 +81,7 @@ Content-Type: application/json
 
 ## Prioritized Backlog
 - **P1:** Open Graph image generator for shared links (dynamic countdown OG card).
-- **P1:** AI "Ask Leonida" lore chatbot (Claude via Emergent LLM key).
+- **P1:** AI "Ask Leonida" lore chatbot (Claude via Groq/Anthropic API key).
 - **P2:** Markets / BAWSAQ page (live in-game tickers, mock data).
 - **P2:** Interactive SVG/Mapbox map of Leonida.
 - **P2:** Newsletter signup → Mongo + Resend.

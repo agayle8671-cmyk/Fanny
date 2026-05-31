@@ -1,0 +1,221 @@
+Architectural Blueprint for a Cognitive Visual Asset Curation Sidecar: Implementing Groq-Powered Semantic Filtering and Zero-Download
+High-Resolution Validation for Leonida Vice
+The digital asset architecture of the Leonida Vice platform is governed by a strict,
+luxury-cinematic dark-mode aesthetic that treats every publication as a premium film poster. Under the strict platform guidelines outlined in ARTICLE_LAYOUT_RULES.md, every published article must feature exactly two unique, high-definition (HD) visual assets scraped directly from the original source website: a full-bleed hero header image and a distinct body image. If the ingestion pipeline fails to locate both unique, high-quality images directly from the source page, the article is discarded and excluded from publication to prevent rendering empty arrays, distorted graphics, or generic fallback stock photography.
+To automate this strict curation process without introducing latency or layout degradation, the proposed solution establishes an asynchronous, supervisor-style visual asset pipeline: the Cognitive Image Scraping and Curation Sidecar (CISCS). Designed to run as a separate service alongside the current article text scraper, the CISCS leverages the Model Context Protocol (MCP) and a decoupled sidecar pattern to intercept crawled article text, execute semantic relevancy checks via the built-in Groq API, enforce Grand Theft Auto 6 (GTA 6) contextual filters, and validate strict 2K resolution standards.
+
+Decoupled Architectural Design of the Visual Supervision System
+The visual curation sidecar operates on an asynchronous, event-driven pattern designed to isolate resource-heavy computer vision tasks and network-intensive image extraction from the primary text scraper. In synchronous scraping architectures, executing deep text classification, third-party search queries, and high-resolution image decoding within a single execution thread introduces severe processing bottlenecks and increases Interaction to Next Paint (INP) latency. By deploying the visual scraper as an independent sidecar service, the system achieves a robust separation of concerns, keeping the primary publishing pipeline responsive and isolated from downstream network failures.
+Communication between the primary article scraper and the visual sidecar is orchestrated via a non-blocking Redis message broker. When the article scraper discovers and parses a raw feed, it commits the basic text payload to the database and pushes an ingest job to a Redis list (visual_supervisor:jobs) containing the article slug, raw scraped HTML, and any initial media URLs extracted from the page. The visual sidecar blocks on this list using a standard BRPOP
+
+operation, immediately popping incoming jobs to run them through its multi-stage validation sandbox. [span_10](start_span)[span_10](end_span)+------------------------+	Get Candidate	+----------------------+
+¦ Article Scraper Ingest ¦ ---------------------> ¦ Redis Jobs Queue	¦
++------------------------+	+----------------------+
+¦
+¦ Pop Job
+?
++------------------------+	Relevancy Check
++----------------------+
+¦ Groq API (Strict JSON)¦ <---------------------- ¦ CISCS Visual Sidecar ¦
++------------------------+	+----------------------+
+¦
+¦ Sourced Assets
+?
++------------------------+	Size Filtering
++----------------------+
+¦ HTTP Range Request	¦ <---------------------- ¦ Media API Providers ¦
+¦ (PIL ImageFile.Parser) ¦	¦ (Google & Bing SERP) ¦
++------------------------+	+----------------------+
+¦
+¦ Unique dHash Check
+?
++----------------------+
+¦ MongoDB Ingest DB	¦
++----------------------+
+
+The scraper acts as a strict supervisor: if the source page's raw media does not meet the necessary resolution or contains duplicates, the sidecar invokes highly filtered search queries using external image search APIs to fetch verified high-resolution mirrors. If the supervisor cannot locate a qualified, unique pair of images from the source or these external lookups, it calls the MongoDB database to update the draft's state to rejected with an audit reason of Low quality or Duplicate, preventing the article from ever reaching the editorial queue.
+The operational sequence, state transitions, and recovery mechanisms executed by the visual sidecar are structured below.
+Pipeline StateSystem ProcessCore MechanismException Handling
+Protocol1. Payload InterceptionRetrieve the raw text and image candidates from the queue.Pulls jobs from Redis visual_supervisor:jobs ; parses the input
+payload JSON.Log warning, return payload to a dead-letter queue, and skip further
+processing.2. Semantic ValidationAnalyze raw text for strict GTA 6 relevancy.Queries the Groq API with structured JSON output configurations.Reject article immediately, updating database status to
+rejected.3. Asset AcquisitionGather high-resolutionQueries alternative
+Pipeline StateSystem ProcessCore MechanismException Handling
+Protocolfallback source media if needed.multi-engine APIs (Google CSE and Bing).4. Header VerificationConfirm resolution meets the 2K standard (\ge 2048 px).Performs HTTP Range requests and parses bytes with
+ImageFile.Parser.Discard target candidate; fallback to next prioritized URL.5. Deduplication & CommitEnforce absolute visual uniqueness between Hero and Body images.Computes dHash values ; evaluates Hamming distance D(h_1, h_2) \ge 10.Shift Body image index sequentially (i + 1) until uniqueness is achieved.Groq-Enabled Semantic Filtering and GTA 6 Relevancy Controls
+To prevent generic Grand Theft Auto (such as legacy GTA 5 or Grand Theft Auto Online) or older franchise graphics from polluting the Leonida Vice database, the visual supervisor sidecar utilizes the built-in Groq API to run real-time semantic analyses of the scraped article text.
+Simple keyword regex matching is highly fragile and fails to capture contextual nuance, often leading to false positives where legacy assets are mistakenly classified as relevant. By querying the llama-3.3-70b-versatile model, the CISCS evaluates the central semantic theme of the text. To guarantee deterministic, programmatic behavior, the system utilizes the Groq Structured Outputs feature with strict schema adherence (strict: true). This ensures that the model is constrained at the token level to only generate valid JSON that strictly conforms to a defined Pydantic schema, eliminating conversational formatting anomalies and the need for complex regex post-parsing. The target classification schema is defined programmatically as follows: from pydantic import BaseModel, Field
+from typing import List
+
+class GTA6ContextAssessment(BaseModel): is_strictly_gta6: bool = Field(
+    description="True ONLY if the text explicitly and primarily discusses GTA 6, its leaked content, characters, or the state of Leonida. Set to False for legacy GTA titles or generic franchise discussions."
+)
+confidence_score: float = Field(
+    description="A floating-point confidence score between 0.0 and 1.0 representing the density of GTA 6-specific contextual details."
+)
+detected_anchors: List[str] = Field(
+    description="List of explicit GTA 6 entities identified in the text. Must contain at least one of: 'Lucia', 'Jason', 'Leonida'."
+)
+primary_theme: str = Field(
+description="The extracted primary subject category matching: Leaks, Tech, Story, Media,
+
+World, Markets."
+)
+classification_rationale: str = Field(
+    description="Required explanation detailing the semantic factors that led to this relevancy determination."
+)
+
+The system prompt enforces strict contextual constraints. The model parses the scraped text and evaluates the relationship between the identified entities and the designated anchor terms (Lucia, Jason, Leonida). Let R_{\text{gta6}} represent the calculated semantic relevancy score. The system applies a validation constraint:
+Where C_{\text{title}} \in \{0, 1\} represents title-specific relevance, n_k is the count of unique anchor terms (Lucia, Jason, Leonida) present in the text, and $C_{\text{context}} \in $ represents the semantic confidence score (confidence_score) returned by the Groq API. The weighting coefficients are configured as w_t = 0.25, w_k = 0.40, and w_s = 0.35. The CISCS enforces a strict validation gate:
+If the payload fails this constraint, the visual supervisor immediately discards the article, preventing legacy franchise imagery (such as Los Santos or Liberty City graphics) from ever polluting the database. This strict logic ensures that only assets matching the premium, validated context of the State of Leonida enter the ingestion queue.
+
+High-Resolution Sourcing and Multi-Engine Search Integration
+When the source page does not yield sufficient visual assets, or when the extracted images fail to meet the resolution threshold, the supervisor scraper initiates an external asset-sourcing routine to find high-resolution mirrors. Because Microsoft retired all Bing Web Search APIs on August 11, 2025, the pipeline bypasses direct infrastructure limitations by integrating with
+third-party search APIs-such as SerpApi or SearchApi-to query Bing and Google Custom Search JSON API engines dynamically.
+The search query is constructed dynamically by pairing the primary anchor keyword found in the text with explicit brand identifiers (e.g., q=Lucia + "GTA VI") to isolate relevant high-fidelity game graphics. To enforce the selection of premium-quality images from the search provider, the CISCS applies exact API parameter overrides.
+The configuration mappings for both Google and Bing engines are structured below to target wallpaper and extra-large format assets.
+Visual ParameterGoogle Custom Search
+APIBing Images API
+(SerpApi/SearchApi)System ImplementationSearch Engine TypesearchType=imageengine=bing_imagesRestricts the API engine exclusively to
+visual media.Primary Queryq={anchors}+"GTA VI"q={anchors}+"GTA 6"Restricts lookups to
+semantically validated entities.Size Filter CategoryimgSize=huge or
+xxlargeimagesize=wallpaperTargets extra-large
+wallpapers and master
+Visual ParameterGoogle Custom Search
+APIBing Images API
+(SerpApi/SearchApi)System Implementationgraphics.Layout ConstraintimgAspect=wideaspect=wideEnforces widescreen proportions matching
+the 92vh layout.Content TypeimgType=photophoto=photoFilters out vector graphics, clip art, and
+line drawings.SafeSearch Filtersafe=activesafeSearch=strictEliminates adult content and explicit
+web uploads.Zero-Download Dimensional Filtering and Header-Stream Parsing
+Web scraping at scale presents significant network overhead and processing latency when downloading multi-megabyte 2K and 4K images just to verify their pixel dimensions.
+Downloading entire raster payloads that are ultimately discarded for failing resolution checks introduces prohibitive latencies and storage bottlenecks. To bypass this overhead, the CISCS implements a zero-download dimensional filtering pipeline.
+The visual supervisor uses Python's requests library in streaming mode (stream=True) combined with Pillow's ImageFile.Parser to decode the image dimensions incrementally from the initial byte headers of the file, terminating the connection immediately once the dimensions are read. Because web servers write metadata headers (such as the PNG IHDR chunk or JPEG SOF0 marker) at the absolute beginning of the file, the width and height are contained within the first few hundred bytes.
+import requests
+from PIL import ImageFile import logging
+
+def verify_image_resolution_stream(image_url: str, min_width: int = 2048, min_height: int = 1080) -> bool:
+headers = { "User-Agent":
+"Mozilla/[span_28](start_span)[span_28](end_span)[span_30](start_span)[span_30](end_span)
+5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", "Range": "bytes=0-4096" # Restrict fetch to initial byte header
+}
+try:
+response = requests.get(image_url, headers=headers, stream=True, timeout=10) if response.status_code not in (200, 206):
+return False
+
+parser = ImageFile.Parser() chunk_size = 512
+bytes_read = 0
+
+for chunk in response.iter_content(chunk_size=chunk_size): parser.feed(chunk)
+bytes_read += len(chunk)
+
+if parser.image:
+width, height = parser.image.size
+response.close() # Terminate connection immediately
+
+# Verify strict HD minimum 2K resolution standard if width >= min_width and height >= min_height:
+  return True else:
+return False
+
+# Escape if headers are not found in the first 32KB if bytes_read > 32768:
+break
+
+except Exception as e:
+  logging.error(f"Error streaming dimensional data from {image_url}: {e}") return False
+
+Let \mathcal{A} represent the set of raw image candidates retrieved from the source page or search APIs. The filtered subset of acceptable, high-resolution visual assets
+\mathcal{P}_{\text{valid}} is defined using set builder notation:
+Where \mathcal{M}_{\text{mime}}(A) is the verified MIME type derived from the stream header parsing. This programmatic gatekeeper ensures that every asset committed to the Leonida Vice database strictly complies with the platform's HD standards, completely bypassing the fallback asset pools.
+
+Perceptual Hashing and Visual Deduplication Engines
+The ARTICLE_LAYOUT_RULES.md document mandates that the Hero and Body images must be completely unique and different from one another. A critical failure mode in web scrapers is the duplicate ingestion of the exact same graphic under different filenames, or the sourcing of near-identical frames (e.g., frames extracted millisecond-apart from the same trailer).
+To prevent visual duplication, the CISCS implements a robust visual hashing engine using the Python imagehash library. The sidecar generates Perceptual Hashes (pHash) and Difference Hashes (dHash) for every candidate image. While cryptographic hashing (like SHA-256) yields completely different strings for a single-pixel modification, perceptual hashing produces mathematically close strings for visually similar inputs.
+The Difference Hashing (dHash) algorithm is selected for its high computation speed and low processing latency. The pipeline executes the following operational steps to calculate the dHash:
+1. Grayscale Conversion: Eliminates color channels to analyze structural luminance.
+2. Downsizing: Resizes the image to a (n+1) \times n matrix (typically 9 \times 8).
+
+3. Luminance Difference Calculation: Compares adjacent horizontal pixels.
+4. Binary Construction: Generates a 64-bit or 128-bit hexadecimal fingerprint string.
+Let I(x, y) represent the grayscale intensity of the resized image at coordinates $x \in $ and $y
+\in $. For each row y, the binary bit B(x, y) is calculated as:
+This sequence yields an 8x8 matrix of boolean values, which are flattened into a 64-bit hexadecimal hash string (e.g., ffd7918181c9ffff).
+Original Images Sourced
++-----------+ +-----------+
+¦Candidate A¦ ¦Candidate B¦
++-----------+ +-----------+
+¦	¦
+?	?
++-----------+ +-----------+
+¦ dHash (A) ¦ ¦ dHash (B) ¦
++-----------+ +-----------+
+¦	¦
+?	?
+ffd7918181c9ffff ffd79181c9ffffff
+¦	¦
++-------------+
+¦
+?
+Hamming Distance Evaluation popcount(HashA ? HashB)
+¦
++-------------------+
+¦ Distance >= 10  ¦
++-------------------+
+¦
++-----------------+
+?	?
+
+Ingest Asset	Reject Asset
+
+Let h_1 and h_2 be the hex-decoded 64-bit binary integers representing the hashes of the Hero and Body candidates respectively. The visual similarity is computed using the Hamming distance D(h_1, h_2), which represents the number of differing bit positions :
+Where \oplus denotes the bitwise Exclusive OR (XOR) operation. The duplicate verification algorithm executes a strict logic loop:
+? If D(h_1, h_2) \le 5, the images are flagged as structurally identical or near-duplicates (e.g., matching promotional stills with different compression ratios). The Body candidate is immediately rejected.
+? If 5 < D(h_1, h_2) \le 10, the images are flagged as highly similar (e.g., sequential frames of a trailer).
+? If D(h_1, h_2) > 10, the assets are confirmed as visually unique, meeting the strict ARTICLE_LAYOUT_RULES.md layout boundaries.
+If the Hamming check fails, the CISCS triggers its auto-shift resolution logic. The Body index is sequentially incremented (i+1) to evaluate the next high-resolution candidate from the sourced
+
+pool until visual uniqueness is achieved. This prevents identical or highly redundant graphics from rendering twice on the public layout.
+The relative performance trade-offs of the primary visual hashing algorithms supported by the CISCS visual engine are structured below.
+Hashing AlgorithmKey Features &
+AdvantagesOperational
+LimitationsCore Use CaseHighly Robust
+AgainstDifference Hashing (dHash)Computational speed; linear horizontal gradient comparison; highly
+predictable.Sensitive to horizontal mirroring and rotation.Main deduplication pipeline; fast pairwise bulk scans.Image resizing, compression shifts, minor color changes.Perceptual Hashing (pHash)High robustness; uses Discrete Cosine Transform (DCT) to filter high
+frequencies.Computationally heavy; slower due to frequency decompositions.Deep validation of complex composition changes.Minor edits, watermarks, text overlays, brightness shifts.Average Hashing (aHash)Simple implementation; compares pixels against global
+mean luminance.High risk of false positives; sensitive to illumination changes.Quick pre-filtering step for
+low-contrast images.Aspect-ratio changes, extreme scaling.Wavelet Hashing (wHash)Discrete Wavelet Transformation (DWT); works well in frequency
+domain.High resource utilization; overhead from wavelet matrix
+math.Detailed artistic scene validation.Compression artifacts, blurring, localized image modifications.Storage Optimization and Database Persistence Schema
+Once a visual asset successfully passes the semantic, dimensional, and visual deduplication checks, the metadata payload must be committed to the database. The main MongoDB collection schema is structured to accommodate the new visual fields natively. When the CISCS confirms a validation success, it updates the target record in the scraped_articles collection by matching the unique slug identifier :
+{
+"_id": "ObjectId('65ebd10f1f97f2f4f27319ab')", "slug": "ign-rockstar-q4-2026-locked",
+"title": "Rockstar reaffirms November 19, 2026 launch on Take-Two Q3 earnings call", "excerpt": "Strauss Zelnick called the date 'locked.' No PC window discussed.", "aiSummary": "Take-Two CEO confirmed Nov 19, 2026 PS5/Xbox launch. No PC date.", "category": "World",
+"sourceName": "IGN",
+"sourceUrl": "https://ign.com/articles/gta6-q4-locked", "url": "https://ign.com/articles/gta6-q4-locked", "imageThumbnail":
+"https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?q=80&w=2400",
+
+"heroImage":
+"https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?q=80&w=2400", "bodyImage":
+"https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?q=80&w=2400", "visual_metadata": {
+"hero_hash_hex": "ffd7918181c9ffff", "body_hash_hex": "8f27bda64f64ebd6", "hamming_distance": 22, "hero_resolution": "2560x1440", "body_resolution": "2048x1152"
+},
+"newsValueScore": 94,
+"commentsCount": 1842,
+"publishedAt": "2026-05-30T15:30:00Z", "scrapedAt": "2026-05-30T15:35:11Z",
+"status": "approved"
+}
+
+Because MongoDB does not natively support Hamming distance calculations efficiently via B-tree indexes, storing hashes solely as raw hex strings can lead to expensive table scans
+during bulk deduplication lookups. To optimize performance at scale, the database architecture decomposes the 64-bit dHash strings into four 16-bit integer segments (hash_segment_1, hash_segment_2, etc.) and indexes them individually.
+This segment decomposition allows the supervisor to execute quick, exact-match queries against individual segments, filtering out 99% of non-matching records in milliseconds before running the precise bitwise XOR Hamming calculation in memory on the remaining candidates. This multi-layered validation pattern guarantees that all active news releases comply with the platform's rigorous design guidelines, protecting the site's layout integrity and ensuring a flawless, highly polished cinematic user experience.
+
+Works cited
+1. Applying Sidecar ?? pattern to OpenLLMetry using Bob! - DEV Community, https://dev.to/aairom/applying-sidecar-pattern-to-openllmetry-using-bob-1gpj 2. Structured Outputs - GroqDocs - Groq Console, https://console.groq.com/docs/structured-outputs 3. MCP-Diag: A Deterministic, Protocol-Driven Architecture for AI-Native Network Diagnostics - arXiv, https://arxiv.org/html/2601.22633v1 4. When the Scraper Breaks Itself: Building a
+Self-Healing CSS Selector Repair System,
+https://dev.to/viniciuspuerto/when-the-scraper-breaks-itself-building-a-self-healing-css-selector-r epair-system-312d 5. Building a Resilient Web Scraper: LangGraph, TrueFoundry & Semantic AI,
+https://www.truefoundry.com/blog/accelerator-series-building-a-resilient-web-scraper-with-langgr aph-and-truefoundry 6. Monitoring a web app with Sidecar Prometheus and Grafana | by Sangeetha P L - Medium,
+https://medium.com/@sangeethapl.sai/monitoring-a-node-js-app-with-sidecar-prometheus-and- grafana-abed1f5535ad 7. Guide To Google Image Search API and Alternatives - Scrapfly Blog, https://scrapfly.io/blog/posts/guide-to-google-image-search-api-and-alternatives 8. Bing Image Search API: A Simple and Complete Guide - SERPHouse,
+
+https://www.serphouse.com/blog/bing-images-search-api/ 9. Finding duplicates - Imagededup - idealo, https://idealo.github.io/imagededup/user_guide/finding_duplicates/ 10. JSON Output from OpenAI, Groq, Gemini, and Mistral - EDocGen, https://www.edocgen.com/blogs/ai-json 11. What are the Best Bing Search API Alternatives in 2026 - Firecrawl, https://www.firecrawl.dev/blog/bing-search-api-alternatives 12. Bing Images API - SerpApi, https://serpapi.com/bing-images-api 13. Bing Images API Documentation, https://www.searchapi.io/docs/bing-images-api 14. API which uses Microsoft Cognitive services
+- Bing Image search API to get images according to search query. - GitHub, https://github.com/manalighare19/Bing-Image-Search-API 15. Class: Google::Apis::CustomsearchV1::CustomSearchAPIService - Documentation by YARD 0.9.26, https://googleapis.dev/ruby/google-api-client/latest/Google/Apis/CustomsearchV1/CustomSearc hAPIService.html 16. ImgSize | Custom Search JSON API - Google for Developers, https://developers.google.com/custom-search/v1/reference/rest/v1/ImgSize 17. python - Get Image size WITHOUT loading image into memory - Stack Overflow, https://stackoverflow.com/questions/15800704/get-image-size-without-loading-image-into-memo ry 18. Python Program to Find the Size (Resolution) of a Image - Vultr Docs, https://docs.vultr.com/python/examples/find-the-size-resolution-of-a-image 19. Get image size without downloading it in Python - Stack Overflow, https://stackoverflow.com/questions/7460218/get-image-size-without-downloading-it-in-python
+20. ImageFile module - Pillow (PIL Fork) 12.2.0 documentation, https://pillow.readthedocs.io/en/stable/reference/ImageFile.html 21. Check file size before downloading it with Python - Abhay Kashyap,
+https://abhay.fyi/blog/check-file-size-before-downloading-it-with-python/ 22. pHash in Python | Hashing and Validation in Multiple Programming Languages - SSOJet, https://ssojet.com/hashing/phash-in-python 23. idealo/imagededup: Finding duplicate images made easy! - GitHub, https://github.com/idealo/imagededup 24. JohannesBuchner/imagehash: A Python Perceptual Image Hashing Module - GitHub, https://github.com/JohannesBuchner/imagehash 25. dhash in Python | Hashing and Validation Across Programming Languages - MojoAuth, https://mojoauth.com/hashing/dhash-in-python 26. Duplicate image detection with perceptual hashing in Python - Ben Hoyt, https://benhoyt.com/writings/duplicate-image-detection/ 27. Comparative Evaluation of Perceptual Hashing and Deep Embedding Methods for Robust and Efficient Image Deduplication - MDPI, https://www.mdpi.com/2079-9292/15/7/1493 28. Hashing - Imagededup - idealo, https://idealo.github.io/imagededup/methods/hashing/ 29. johnbumgarner/facial_similarities: This repository provides various Python methods for performing image comparisons/similarities between multiple images. - GitHub, https://github.com/johnbumgarner/facial_similarities 30. Calculating hamming distance with mongodb? - Stack Overflow,
+https://stackoverflow.com/questions/35259619/calculating-hamming-distance-with-mongodb 31. Python MySQL and ImageHash help : r/learnpython - Reddit, https://www.reddit.com/r/learnpython/comments/10qln12/python_mysql_and_imagehash_help/

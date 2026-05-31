@@ -9,7 +9,7 @@ export const trailers = [
     duration: "1:31",
     description:
       "The first official trailer. Lucia is introduced, Vice City is confirmed, and the world wakes up to GTA 6 with Tom Petty's 'Love Is a Long Road' as scoring.",
-    thumbnail: "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/6dccb50f1f97f2f4f27319ab01773127d24f381cb080704869c46c535155b382.png",
+    thumbnail: "https://img.youtube.com/vi/QdBZY2fkU-0/maxresdefault.jpg",
     tags: ["Official", "Lucia", "Vice City", "Tom Petty"],
   },
   {

@@ -12,9 +12,9 @@ export const characters = [
     affiliation: "Duval Crew",
     origin: "Liberty City → Leonida",
     image:
-      "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/8f27bda64f64ebd6453620848c5ec42959dae5b3db7d13932e1b573769470f79.png",
+      "https://images.unsplash.com/photo-1614728894747-a83421e2b9c9?q=80&w=1200&auto=format&fit=crop",
     coverImage:
-      "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/8f27bda64f64ebd6453620848c5ec42959dae5b3db7d13932e1b573769470f79.png",
+      "https://images.unsplash.com/photo-1614728894747-a83421e2b9c9?q=80&w=1200&auto=format&fit=crop",
     bio: "Born in Liberty City and shaped by a stint inside Leonida Penitentiary, Lucia Caminos is one half of GTA 6's central romance. Taught to defend herself by her father, she chases a 'better life' through the only economy that ever paid her: organized crime. She is sharp, opportunistic, and the strategist of the duo.",
     quote:
       "Some people wait for their break. I make mine — and I keep what I take.",
@@ -44,9 +44,9 @@ export const characters = [
     affiliation: "Heder Smuggling Network",
     origin: "Leonida Keys",
     image:
-      "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/18ea9848372b348f0168b03c23d7b02531d161f51b1f30a4a089c2374b0e293c.png",
+      "https://images.unsplash.com/photo-1533106497176-45ae19e68ba2?q=80&w=1200&auto=format&fit=crop",
     coverImage:
-      "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/18ea9848372b348f0168b03c23d7b02531d161f51b1f30a4a089c2374b0e293c.png",
+      "https://images.unsplash.com/photo-1533106497176-45ae19e68ba2?q=80&w=1200&auto=format&fit=crop",
     bio: "Jason came back from war looking for quiet water and a porch. He found Brian Heder's marina instead. Running boats for old-guard smugglers in the Leonida Keys, Jason is the muscle, the marksman, and the steadier hand of the partnership. His ambition is small and stubborn: an easy life. The conspiracy he stumbles into has very different plans.",
     quote: "I didn't come home for this. I came home to get away from it.",
     facts: [

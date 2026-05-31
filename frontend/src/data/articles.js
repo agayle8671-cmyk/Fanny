@@ -152,7 +152,7 @@ export const articles = [
     date: "February 12, 2026",
     readTime: "9 min read",
     heroImage:
-      "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/6dccb50f1f97f2f4f27319ab01773127d24f381cb080704869c46c535155b382.png",
+      "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?q=80&w=2400&auto=format&fit=crop",
     tags: ["World", "Vice City", "Leonida", "Open World"],
     body: [
       {
@@ -219,7 +219,7 @@ export const articles = [
     date: "February 9, 2026",
     readTime: "7 min read",
     heroImage:
-      "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/8f27bda64f64ebd6453620848c5ec42959dae5b3db7d13932e1b573769470f79.png",
+      "https://images.unsplash.com/photo-1614728894747-a83421e2b9c9?q=80&w=2400&auto=format&fit=crop",
     tags: ["Characters", "Lucia", "Jason", "Story"],
     body: [
       {
@@ -236,7 +236,7 @@ export const articles = [
       },
       {
         type: "image",
-        src: "https://static.prod-images.emergentagent.com/jobs/133190d3-a699-44bf-a8c9-cce9bb2365f6/images/18ea9848372b348f0168b03c23d7b02531d161f51b1f30a4a089c2374b0e293c.png",
+        src: "https://images.unsplash.com/photo-1533106497176-45ae19e68ba2?q=80&w=2400&auto=format&fit=crop",
         caption: "Jason Duval — army veteran, smuggler, the steadier hand of the duo.",
       },
       {
