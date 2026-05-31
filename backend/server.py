@@ -1352,6 +1352,12 @@ async def list_articles(
         .limit(limit)
     )
     items = await cursor.to_list(length=limit)
+    # Normalize: ensure heroImage is always populated from imageThumbnail if missing
+    for item in items:
+        if not item.get("heroImage") and item.get("imageThumbnail"):
+            item["heroImage"] = item["imageThumbnail"]
+        elif not item.get("imageThumbnail") and item.get("heroImage"):
+            item["imageThumbnail"] = item["heroImage"]
     total = await db.scraped_articles.count_documents(query)
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
@@ -1368,6 +1374,12 @@ async def trending_articles(limit: int = Query(10, ge=1, le=50)):
     if not items:
         cursor = db.scraped_articles.find({"status": "published"}, {"_id": 0}).sort("newsValueScore", -1).limit(limit)
         items = await cursor.to_list(length=limit)
+    # Normalize heroImage/imageThumbnail in-flight
+    for item in items:
+        if not item.get("heroImage") and item.get("imageThumbnail"):
+            item["heroImage"] = item["imageThumbnail"]
+        elif not item.get("imageThumbnail") and item.get("heroImage"):
+            item["imageThumbnail"] = item["heroImage"]
     return {"items": items}
 
 @api_router.get("/articles/{slug}")
@@ -1375,6 +1387,11 @@ async def get_article(slug: str):
     doc = await db.scraped_articles.find_one({"slug": slug, "status": "published"}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Article not found")
+    # Normalize heroImage/imageThumbnail
+    if not doc.get("heroImage") and doc.get("imageThumbnail"):
+        doc["heroImage"] = doc["imageThumbnail"]
+    elif not doc.get("imageThumbnail") and doc.get("heroImage"):
+        doc["imageThumbnail"] = doc["heroImage"]
     return doc
 
 @api_router.delete("/articles/{slug}")
@@ -2573,6 +2590,22 @@ async def startup():
         )
     except Exception as e:
         logger.error(f"[Startup] Status migration failed: {e}")
+
+    # Sync heroImage ↔ imageThumbnail — permanently fix split-field articles in DB
+    try:
+        # Articles that have imageThumbnail but heroImage is missing
+        r1 = await db.scraped_articles.update_many(
+            {"imageThumbnail": {"$nin": [None, ""]}, "$or": [{"heroImage": {"$exists": False}}, {"heroImage": None}, {"heroImage": ""}]},
+            [{"$set": {"heroImage": "$imageThumbnail"}}]
+        )
+        # Articles that have heroImage but imageThumbnail is missing
+        r2 = await db.scraped_articles.update_many(
+            {"heroImage": {"$nin": [None, ""]}, "$or": [{"imageThumbnail": {"$exists": False}}, {"imageThumbnail": None}, {"imageThumbnail": ""}]},
+            [{"$set": {"imageThumbnail": "$heroImage"}}]
+        )
+        logger.info(f"[Startup] heroImage sync: {r1.modified_count} got heroImage from imageThumbnail, {r2.modified_count} got imageThumbnail from heroImage")
+    except Exception as e:
+        logger.error(f"[Startup] heroImage sync migration failed: {e}")
 
     _next_run_time = _compute_next_run()
 
