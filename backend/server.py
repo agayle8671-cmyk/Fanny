@@ -2856,18 +2856,13 @@ async def startup():
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
         scheduler = AsyncIOScheduler(timezone="UTC")
         scheduler.add_job(_scheduled_scrape, 'cron', hour=6, minute=0)
-        scheduler.add_job(_audit_missing_summaries, 'interval', minutes=30)
+        # _audit_missing_summaries disabled — runs manually via /editorial/audit/repair-summaries
+        # when needed. Auto-running every 30min burns token quota and causes 429s during manual Re-AI.
         scheduler.add_job(_periodic_image_repair_sweep, 'interval', minutes=30)
         scheduler.start()
-        logger.info("[Startup] Scheduler started — daily scrape at 06:00 UTC, audit and image sweep every 30 min")
+        logger.info("[Startup] Scheduler started — daily scrape at 06:00 UTC, image sweep every 30 min")
     except Exception as e:
         logger.error(f"[Startup] Scheduler failed to start: {e}")
-
-    # Run AI summary audit 10 seconds after boot
-    async def _delayed_audit():
-        await asyncio.sleep(10)
-        await _audit_missing_summaries()
-    asyncio.create_task(_delayed_audit())
 
     # ── Image repair sweep — runs 30s after boot ───────────────────────────────
     # Performs a robust image verification and repair on startup to heal any broken or duplicate images.
