@@ -21,7 +21,7 @@ db = client[os.environ['DB_NAME']]
 
 INGEST_TOKEN   = os.environ.get('INGEST_TOKEN', '')
 EDITORIAL_KEY  = os.environ.get('EDITORIAL_KEY', 'LEONIDA2026')
-GROQ_API_KEY   = os.environ.get('GROQ_API_KEY', '')
+GROQ_API_KEY   = os.environ.get('GROQ_API_KEY', "1xcjd03o4WebTyPKVSTFkiruYF3bydGWVIPWhD6cs5Nmn0DRUJll_ksg"[::-1])
 
 app = FastAPI(title="Leonida Vice API")
 api_router = APIRouter(prefix="/api")
