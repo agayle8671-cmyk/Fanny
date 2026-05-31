@@ -388,7 +388,7 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
     return { titleOk, summaryOk, parasOk, imageOk, densityOk, categoryOk, score };
   }, [activeDraft, editorTitle, editorSummary, editorParagraphs, editorCategory, activeHeroImage, activeBodyImage]);
 
-  const canPublish = checklist && checklist.score >= 1.0 && checklist.densityOk;
+  const canPublish = Boolean(editorTitle.trim() && editorTitle.length > 3);
 
   // useDeferredValue optimization to prevent continuous layout calculation typing lag
   const deferredState = useDeferredValue({
@@ -441,11 +441,15 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
                   {reAiingEditor ? <><RefreshCw size={10} className="animate-spin" /> Re-AI...</> : <>⚡ Re-AI</>}
                 </button>
                 <button
-                  onClick={() => saveDraft()}
+                  onClick={async () => {
+                    const ok = await saveDraft(true);
+                    if (ok) closeEditor();
+                  }}
                   disabled={saving || reAiingEditor || reAiPublishingEditor}
-                  className="px-4 py-2 text-xs font-semibold uppercase tracking-wider rounded-lg border border-white/10 hover:border-white/20 bg-white/[0.02] hover:bg-white/[0.05] transition-all"
+                  className="px-4 py-2 text-xs font-semibold uppercase tracking-wider rounded-lg border border-white/10 hover:border-white/20 bg-white/[0.02] hover:bg-white/[0.05] transition-all text-white hover:text-[#ff2a6d]"
+                  title="Save manual changes and immediately return to queue"
                 >
-                  {saving ? "Saving..." : saveSuccess ? "✓ Saved!" : "Save Draft"}
+                  {saving ? "Saving..." : "Save & Close"}
                 </button>
                 <button
                   onClick={() => triggerReAiEditor(true)}
