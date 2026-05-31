@@ -7,6 +7,8 @@ import { ReadingProgress } from "../components/ReadingProgress";
 import { ShareWidget } from "../components/ShareWidget";
 import { ArticleTOC, slugify } from "../components/ArticleTOC";
 
+const PLACEHOLDER_IMAGE = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200"><rect width="300" height="200" fill="%230c0c0e"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="'Outfit', 'Bebas Neue', sans-serif" font-size="20" fill="%23ff2a6d" letter-spacing="4">LEONIDA VICE</text><text x="50%" y="65%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="8" fill="%2305d9e8" opacity="0.6" letter-spacing="2">MEDIA MISSING</text></svg>`;
+
 // Loading skeleton for dynamic articles
 const ArticleSkeleton = () => (
   <div className="bg-[#050505] text-white animate-pulse">
@@ -152,10 +154,11 @@ const Article = () => {
       >
         <div className="absolute inset-0 z-0 grain">
           <img
-            src={article.heroImage}
+            src={article.heroImage || PLACEHOLDER_IMAGE}
             alt={article.title}
             className="w-full h-full object-cover object-center"
             style={{ objectPosition: "center 30%" }}
+            onError={e => { e.target.src = PLACEHOLDER_IMAGE; }}
           />
         </div>
         <div className="absolute inset-0 z-10 bg-gradient-to-t from-[#050505] via-[#050505]/55 to-transparent" />
@@ -284,10 +287,11 @@ const Article = () => {
                   )}
                   <div className="relative h-[60vh] md:h-[80vh] min-h-[420px] max-h-[860px] overflow-hidden">
                     <img
-                      src={block.src}
+                      src={block.src || PLACEHOLDER_IMAGE}
                       alt={block.caption || ""}
                       className="absolute inset-0 w-full h-full object-cover"
                       style={{ objectPosition: "center 40%" }}
+                      onError={e => { e.target.src = PLACEHOLDER_IMAGE; }}
                     />
                     {/* Subtle vignette so the image holds focus */}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-black/15 pointer-events-none" />
@@ -350,9 +354,10 @@ const Article = () => {
             >
               <div className="relative w-28 h-20 flex-none overflow-hidden rounded-md">
                 <img
-                  src={prev.heroImage}
+                  src={prev.heroImage || PLACEHOLDER_IMAGE}
                   alt={prev.title}
                   className="absolute inset-0 w-full h-full object-cover"
+                  onError={e => { e.target.src = PLACEHOLDER_IMAGE; }}
                 />
               </div>
               <div className="min-w-0">
@@ -375,9 +380,10 @@ const Article = () => {
             >
               <div className="relative w-28 h-20 flex-none overflow-hidden rounded-md">
                 <img
-                  src={next.heroImage}
+                  src={next.heroImage || PLACEHOLDER_IMAGE}
                   alt={next.title}
                   className="absolute inset-0 w-full h-full object-cover"
+                  onError={e => { e.target.src = PLACEHOLDER_IMAGE; }}
                 />
               </div>
               <div className="min-w-0 flex-1">
@@ -411,9 +417,10 @@ const Article = () => {
               >
                 <div className="relative aspect-[16/10] overflow-hidden rounded-lg border border-white/5 mb-4">
                   <img
-                    src={r.heroImage}
+                    src={r.heroImage || PLACEHOLDER_IMAGE}
                     alt={r.title}
                     className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                    onError={e => { e.target.src = PLACEHOLDER_IMAGE; }}
                   />
                   <div className="absolute inset-0 hero-overlay" />
                 </div>

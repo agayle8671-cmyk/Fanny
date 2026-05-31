@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+const PLACEHOLDER_IMAGE = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200"><rect width="300" height="200" fill="%230c0c0e"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="'Outfit', 'Bebas Neue', sans-serif" font-size="20" fill="%23ff2a6d" letter-spacing="4">LEONIDA VICE</text><text x="50%" y="65%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="8" fill="%2305d9e8" opacity="0.6" letter-spacing="2">MEDIA MISSING</text></svg>`;
+
 // Rotating hero with Ken Burns slow-zoom + crossfade.
 // Each slide gets its own keyword & color accent that gets fed back to the parent.
 export const heroSlides = [
@@ -84,6 +86,9 @@ export const HeroCarousel = ({ articles = [], onSlideChange }) => {
               className={`w-full h-full object-cover ${
                 i === index ? "animate-kenburns" : ""
               }`}
+              onError={(e) => {
+                e.target.src = PLACEHOLDER_IMAGE;
+              }}
             />
           </div>
         ))}

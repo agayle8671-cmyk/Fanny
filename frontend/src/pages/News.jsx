@@ -4,6 +4,8 @@ import { articles as localArticles } from "../data/articles";
 import { ScrollReveal } from "../components/ScrollReveal";
 import { api } from "../lib/api";
 
+const PLACEHOLDER_IMAGE = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200"><rect width="300" height="200" fill="%230c0c0e"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="'Outfit', 'Bebas Neue', sans-serif" font-size="20" fill="%23ff2a6d" letter-spacing="4">LEONIDA VICE</text><text x="50%" y="65%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="8" fill="%2305d9e8" opacity="0.6" letter-spacing="2">MEDIA MISSING</text></svg>`;
+
 // Normalize backend scraped article to shape News.jsx needs
 function normalizeArticle(a) {
   return {
@@ -106,16 +108,12 @@ const News = () => {
                   data-testid="news-lead-story"
                   className="group block relative aspect-[21/9] rounded-xl overflow-hidden border border-white/10 mb-16"
                 >
-                  {hero.heroImage ? (
-                    <img
-                      src={hero.heroImage}
-                      alt={hero.title}
-                      className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-[1.03]"
-                      onError={e => { e.target.style.display = "none"; }}
-                    />
-                  ) : (
-                    <div className="absolute inset-0 bg-gradient-to-br from-zinc-900 to-zinc-800" />
-                  )}
+                  <img
+                    src={hero.heroImage || PLACEHOLDER_IMAGE}
+                    alt={hero.title}
+                    className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-[1.03]"
+                    onError={e => { e.target.src = PLACEHOLDER_IMAGE; }}
+                  />
                   <div className="absolute inset-0 hero-overlay" />
                   <div className="absolute bottom-0 left-0 right-0 p-8 md:p-14 max-w-4xl">
                     <span className="text-[10px] uppercase tracking-[0.3em] text-[#FF2A6D] font-semibold bg-[#FF2A6D]/20 border border-[#FF2A6D]/30 px-2 py-0.5 rounded-sm">
@@ -147,14 +145,12 @@ const News = () => {
                     className="group block"
                   >
                     <div className="relative aspect-[16/10] overflow-hidden rounded-lg border border-white/5 mb-4 bg-zinc-900">
-                      {a.heroImage && (
-                        <img
-                          src={a.heroImage}
-                          alt={a.title}
-                          className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
-                          onError={e => { e.target.style.display = "none"; }}
-                        />
-                      )}
+                      <img
+                        src={a.heroImage || PLACEHOLDER_IMAGE}
+                        alt={a.title}
+                        className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                        onError={e => { e.target.src = PLACEHOLDER_IMAGE; }}
+                      />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
                       <span className="absolute top-3 left-3 text-[10px] uppercase tracking-[0.25em] text-[#FF2A6D] font-semibold bg-black/60 px-2 py-1 rounded-sm">
                         {a.category}

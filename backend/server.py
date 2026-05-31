@@ -255,6 +255,40 @@ async def _fetch_rss(source: dict) -> List[dict]:
 # ──────────────────────────────────────────────────────────────────────────────
 # COGNITIVE IMAGE SCRAPING AND CURATION SIDECAR (CISCS) UTILITIES
 # ──────────────────────────────────────────────────────────────────────────────
+async def _is_image_reachable(url: str) -> bool:
+    """
+    Validates if an image URL is reachable and contains image data using a fast HEAD request.
+    If HEAD is blocked or fails, falls back to a GET request with a Range header to save bandwidth.
+    """
+    if not url or not isinstance(url, str) or not url.startswith("http"):
+        return False
+    import httpx
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    }
+    try:
+        async with httpx.AsyncClient(timeout=4.0, follow_redirects=True, headers=headers) as client:
+            # 1. Attempt high-speed HEAD request
+            r = await client.head(url)
+            if r.status_code in (200, 206):
+                ct = r.headers.get("content-type", "").lower()
+                if ct and not any(typ in ct for typ in ("image", "octet-stream")):
+                    return False
+                return True
+            
+            # 2. Fallback to GET request with Range bytes limit
+            headers["Range"] = "bytes=0-1024"
+            r = await client.get(url, headers=headers)
+            if r.status_code in (200, 206):
+                ct = r.headers.get("content-type", "").lower()
+                if ct and not any(typ in ct for typ in ("image", "octet-stream")):
+                    return False
+                return True
+    except Exception:
+        pass
+    return False
+
+
 async def verify_image_resolution_stream(image_url: str, min_width: int = 800, min_height: int = 450) -> Optional[tuple]:
     """
     Decodes image dimensions incrementally from the initial byte headers using PIL.ImageFile.Parser
@@ -517,10 +551,10 @@ def _hash_id(article_id: str) -> int:
 async def validate_and_remediate_images(article_id: str, hero: Optional[str], body: Optional[str], source_url: Optional[str] = None) -> tuple:
     """
     Highly robust backend remediation pipeline:
-    1. Verifies if either hero or body is missing or matching tracking/spacer skip-patterns.
-    2. If missing/invalid, attempts a last-chance live scrape of the sourceUrl and fallback searches.
+    1. Verifies if either hero or body is missing, invalid, or unreachable (failing reachability check).
+    2. If missing/invalid/unreachable, attempts a last-chance live scrape of the sourceUrl and fallback searches.
     3. If they are duplicates, sets body to None to trigger fallback.
-    4. If still missing/invalid, draws stable and guaranteed-load HD images from GTA6_POOL.
+    4. If still missing/invalid/unreachable, draws stable and guaranteed-load HD images from GTA6_POOL.
     5. Calculates final dHash and segment maps, returning (hero, body, visual_metadata).
     """
     def is_invalid_url(url: str) -> bool:
@@ -538,12 +572,19 @@ async def validate_and_remediate_images(article_id: str, hero: Optional[str], bo
     if body:
         body = _upgrade_to_hd(body)
 
-    # Invalidate if failing checks
+    # Invalidate if failing checks or unreachable
     if is_invalid_url(hero):
-        logger.info(f"[Remediation] Hero image is missing or invalid tracking pixel: {hero}")
+        logger.info(f"[Remediation] Hero image is missing or invalid: {hero}")
         hero = None
+    elif not await _is_image_reachable(hero):
+        logger.info(f"[Remediation] Hero image is unreachable/broken: {hero}")
+        hero = None
+
     if is_invalid_url(body):
-        logger.info(f"[Remediation] Body image is missing or invalid tracking pixel: {body}")
+        logger.info(f"[Remediation] Body image is missing or invalid: {body}")
+        body = None
+    elif not await _is_image_reachable(body):
+        logger.info(f"[Remediation] Body image is unreachable/broken: {body}")
         body = None
 
     # Deduplicate: if they point to the same file basename
@@ -557,35 +598,47 @@ async def validate_and_remediate_images(article_id: str, hero: Optional[str], bo
         try:
             logger.info(f"[Remediation] Attempting live scrape backfill for missing slots on {article_id}")
             scraped_hero, scraped_body, _ = await _fetch_article_images(source_url, existing_thumb=hero)
+            
+            # Check reachability of scraped candidates before accepting
             if not hero and scraped_hero and not is_invalid_url(scraped_hero):
-                hero = scraped_hero
+                if await _is_image_reachable(scraped_hero):
+                    hero = scraped_hero
             if not body and scraped_body and not is_invalid_url(scraped_body):
                 if not hero or _clean_url_for_compare(scraped_body) != _clean_url_for_compare(hero):
-                    body = scraped_body
+                    if await _is_image_reachable(scraped_body):
+                        body = scraped_body
         except Exception as e:
             logger.warning(f"[Remediation] Live scrape backfill failed: {e}")
 
-    # Fallback to authentic GTA6_POOL if still missing
+    # Helper to find a guaranteed reachable image from GTA6_POOL
+    async def get_valid_pool_image(start_idx: int, exclude_url: Optional[str] = None) -> str:
+        for i in range(len(GTA6_POOL)):
+            idx = (start_idx + i) % len(GTA6_POOL)
+            candidate = GTA6_POOL[idx]
+            if exclude_url and _clean_url_for_compare(candidate) == _clean_url_for_compare(exclude_url):
+                continue
+            if await _is_image_reachable(candidate):
+                return candidate
+        # Absolute fallback if somehow all checks fail
+        return GTA6_POOL[start_idx % len(GTA6_POOL)]
+
+    # Fallback to authentic GTA6_POOL if still missing or unreachable
     h_idx = _hash_id(article_id) % len(GTA6_POOL)
     
     if not hero:
-        hero = GTA6_POOL[h_idx]
+        hero = await get_valid_pool_image(h_idx)
         logger.info(f"[Remediation] Fallback hero assigned from GTA6_POOL: {hero}")
         
     if not body:
         # Shift index by 1 until completely distinct from hero
         b_idx = (h_idx + 1) % len(GTA6_POOL)
-        while _clean_url_for_compare(GTA6_POOL[b_idx]) == _clean_url_for_compare(hero):
-            b_idx = (b_idx + 1) % len(GTA6_POOL)
-        body = GTA6_POOL[b_idx]
+        body = await get_valid_pool_image(b_idx, exclude_url=hero)
         logger.info(f"[Remediation] Fallback body assigned from GTA6_POOL: {body}")
 
     # Double-check final distinctness
     if _clean_url_for_compare(hero) == _clean_url_for_compare(body):
         b_idx = (h_idx + 3) % len(GTA6_POOL)
-        while _clean_url_for_compare(GTA6_POOL[b_idx]) == _clean_url_for_compare(hero):
-            b_idx = (b_idx + 1) % len(GTA6_POOL)
-        body = GTA6_POOL[b_idx]
+        body = await get_valid_pool_image(b_idx, exclude_url=hero)
 
     # Calculate final visual metadata
     hero_hash_val = await _get_image_dhash_from_url(hero)
@@ -603,6 +656,7 @@ async def validate_and_remediate_images(article_id: str, hero: Optional[str], bo
     }
 
     return (hero, body, visual_metadata)
+
 
 async def _fetch_article_images(url: str, existing_thumb: Optional[str] = None) -> tuple:
     """
@@ -1228,6 +1282,67 @@ async def _audit_missing_summaries():
             await asyncio.sleep(0.6)
         except Exception as e:
             logger.warning(f"[Audit] Failed to summarize {art.get('id')}: {e}")
+
+
+async def _periodic_image_repair_sweep():
+    """
+    Scans all published articles to verify their image assets are valid, reachable, and non-duplicate.
+    Remediates any article violating the rules immediately.
+    """
+    logger.info("[ImageRepair] Starting image repair sweep ...")
+    try:
+        cursor = db.scraped_articles.find({"status": "published"}, {"_id": 0})
+        repaired = 0
+        checked = 0
+        async for art in cursor:
+            article_id = art.get("id")
+            if not article_id:
+                continue
+            checked += 1
+            hero = art.get("heroImage") or art.get("imageThumbnail")
+            body = art.get("bodyImage")
+            source_url = art.get("sourceUrl") or art.get("source_url")
+            
+            # Check reachability
+            hero_ok = await _is_image_reachable(hero) if hero else False
+            body_ok = await _is_image_reachable(body) if body else False
+            
+            is_dup = False
+            if hero and body and _clean_url_for_compare(hero) == _clean_url_for_compare(body):
+                is_dup = True
+
+            if not hero_ok or not body_ok or is_dup:
+                logger.info(f"[ImageRepair] Article {article_id} has broken/duplicate images (hero_ok={hero_ok}, body_ok={body_ok}, is_dup={is_dup}). Repairing...")
+                try:
+                    remed_hero = hero if hero_ok else None
+                    remed_body = body if body_ok else None
+                    if is_dup:
+                        remed_body = None # force distinct body
+                        
+                    new_hero, new_body, new_vm = await validate_and_remediate_images(
+                        article_id, remed_hero, remed_body, source_url
+                    )
+                    
+                    await db.scraped_articles.update_one(
+                        {"id": article_id},
+                        {"$set": {
+                            "imageThumbnail": new_hero,
+                            "heroImage": new_hero,
+                            "bodyImage": new_body,
+                            "visual_metadata": new_vm
+                        }}
+                    )
+                    repaired += 1
+                    logger.info(f"[ImageRepair] Successfully repaired article {article_id}.")
+                    await asyncio.sleep(0.5)  # polite rate-limiting
+                except Exception as e:
+                    logger.warning(f"[ImageRepair] Failed to repair article {article_id}: {e}")
+        logger.info(f"[ImageRepair] Sweep complete — checked {checked} articles, repaired {repaired}.")
+        return {"checked": checked, "repaired": repaired}
+    except Exception as e:
+        logger.error(f"[ImageRepair] Sweep failed: {e}")
+        return {"error": str(e)}
+
 
 def _compute_next_run() -> datetime:
     now = datetime.now(timezone.utc)
@@ -2300,50 +2415,13 @@ async def manual_article(body: dict, _: bool = Depends(require_editorial_key)):
 @api_router.post("/editorial/repair-images")
 async def repair_images_endpoint(background_tasks: BackgroundTasks, _: bool = Depends(require_editorial_key)):
     """
-    Trigger an on-demand sweep that finds every published article missing a
-    hero or body image and runs validate_and_remediate_images on it.
+    Trigger an on-demand sweep that validates and repairs missing, broken, or duplicate images
+    for all published articles.
     Returns immediately; repair runs in the background.
     """
-    async def _do_repair():
-        logger.info("[ImageRepair] Manual repair sweep triggered …")
-        try:
-            cursor = db.scraped_articles.find(
-                {
-                    "status": "published",
-                    "$or": [
-                        {"imageThumbnail": {"$in": [None, ""]}},
-                        {"heroImage":      {"$in": [None, ""]}},
-                        {"bodyImage":      {"$in": [None, ""]}},
-                    ]
-                },
-                {"_id": 0}
-            )
-            repaired = 0
-            async for art in cursor:
-                try:
-                    article_id = art.get("id", "")
-                    if not article_id:
-                        continue
-                    source_url = art.get("sourceUrl") or art.get("source_url", "")
-                    hero, body, vm = await validate_and_remediate_images(
-                        article_id,
-                        art.get("imageThumbnail") or art.get("heroImage") or art.get("videoThumbnail"),
-                        art.get("bodyImage"),
-                        source_url
-                    )
-                    await db.scraped_articles.update_one(
-                        {"id": article_id},
-                        {"$set": {"imageThumbnail": hero, "heroImage": hero, "bodyImage": body, "visual_metadata": vm}}
-                    )
-                    repaired += 1
-                    await asyncio.sleep(0.8)
-                except Exception as e:
-                    logger.warning(f"[ImageRepair] Failed {art.get('id')}: {e}")
-            logger.info(f"[ImageRepair] Manual sweep done — {repaired} articles repaired.")
-        except Exception as e:
-            logger.error(f"[ImageRepair] Manual sweep error: {e}")
-    background_tasks.add_task(_do_repair)
+    background_tasks.add_task(_periodic_image_repair_sweep)
     return {"success": True, "message": "Image repair sweep started in background"}
+
 
 # ── Automatic Image Re-Imager ─────────────────────────────────────────────────
 @api_router.post("/editorial/auto-reimage")
@@ -2674,8 +2752,9 @@ async def startup():
         scheduler = AsyncIOScheduler(timezone="UTC")
         scheduler.add_job(_scheduled_scrape, 'cron', hour=6, minute=0)
         scheduler.add_job(_audit_missing_summaries, 'interval', minutes=30)
+        scheduler.add_job(_periodic_image_repair_sweep, 'interval', minutes=30)
         scheduler.start()
-        logger.info("[Startup] Scheduler started — daily scrape at 06:00 UTC, audit every 30 min")
+        logger.info("[Startup] Scheduler started — daily scrape at 06:00 UTC, audit and image sweep every 30 min")
     except Exception as e:
         logger.error(f"[Startup] Scheduler failed to start: {e}")
 
@@ -2686,54 +2765,11 @@ async def startup():
     asyncio.create_task(_delayed_audit())
 
     # ── Image repair sweep — runs 30s after boot ───────────────────────────────
-    # Finds every published article that is missing hero OR body image and runs
-    # validate_and_remediate_images on it.  This retroactively heals any
-    # black-screen articles that slipped through before the remediation gate.
+    # Performs a robust image verification and repair on startup to heal any broken or duplicate images.
     async def _repair_missing_images():
         await asyncio.sleep(30)
-        logger.info("[ImageRepair] Starting startup image repair sweep …")
-        try:
-            cursor = db.scraped_articles.find(
-                {
-                    "status": "published",
-                    "$or": [
-                        {"imageThumbnail": {"$in": [None, ""]}},
-                        {"heroImage":      {"$in": [None, ""]}},
-                        {"bodyImage":      {"$in": [None, ""]}},
-                    ]
-                },
-                {"_id": 0}
-            )
-            repaired = 0
-            async for art in cursor:
-                try:
-                    article_id = art.get("id", "")
-                    if not article_id:
-                        continue
-                    source_url = art.get("sourceUrl") or art.get("source_url", "")
-                    hero, body, vm = await validate_and_remediate_images(
-                        article_id,
-                        art.get("imageThumbnail") or art.get("heroImage") or art.get("videoThumbnail"),
-                        art.get("bodyImage"),
-                        source_url
-                    )
-                    await db.scraped_articles.update_one(
-                        {"id": article_id},
-                        {"$set": {
-                            "imageThumbnail": hero,
-                            "heroImage":      hero,
-                            "bodyImage":      body,
-                            "visual_metadata": vm
-                        }}
-                    )
-                    repaired += 1
-                    logger.info(f"[ImageRepair] Repaired {article_id} — hero={hero[:60] if hero else 'NONE'}")
-                    await asyncio.sleep(1)  # Rate-limit to avoid hammering Groq/DDG
-                except Exception as e:
-                    logger.warning(f"[ImageRepair] Failed to repair {art.get('id')}: {e}")
-            logger.info(f"[ImageRepair] Sweep complete — {repaired} articles repaired.")
-        except Exception as e:
-            logger.error(f"[ImageRepair] Sweep failed: {e}")
+        logger.info("[ImageRepair] Running startup robust image repair sweep …")
+        await _periodic_image_repair_sweep()
     asyncio.create_task(_repair_missing_images())
 
 @app.on_event("shutdown")

@@ -793,7 +793,14 @@ export default function QueuePanel({ apiKey, stats, onStatsChange }) {
                   if (idx === 3 && deferredState.bodyImage) {
                     blocks.push(
                       <div key="body-img" className="relative my-8 border border-white/5 rounded-xl overflow-hidden">
-                        <img src={deferredState.bodyImage} alt="" className="w-full max-h-[350px] object-cover object-center" />
+                        <img
+                          src={deferredState.bodyImage || PLACEHOLDER_IMAGE}
+                          alt=""
+                          className="w-full max-h-[350px] object-cover object-center"
+                          onError={(e) => {
+                            e.target.src = PLACEHOLDER_IMAGE;
+                          }}
+                        />
                         <div className="border-l-2 border-[#ff2a6d] pl-3 text-zinc-400 uppercase tracking-[0.25em] text-[9px] mt-3 mx-4 pb-3">
                           Field Intel Bureau: {deferredState.category} Coverage Telemetry
                         </div>
