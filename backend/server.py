@@ -902,19 +902,48 @@ async def _groq_chat(messages: list, max_tokens: int = 300, model: str = "llama-
         
         # Log token usage to MongoDB
         usage = resp_json.get("usage")
-        if usage:
-            try:
-                now_iso = datetime.now(timezone.utc).isoformat()
-                await db.groq_usage.insert_one({
+        headers = r.headers
+        
+        limit_requests = headers.get("x-ratelimit-limit-requests")
+        limit_tokens = headers.get("x-ratelimit-limit-tokens")
+        remaining_requests = headers.get("x-ratelimit-remaining-requests")
+        remaining_tokens = headers.get("x-ratelimit-remaining-tokens")
+        reset_requests = headers.get("x-ratelimit-reset-requests")
+        reset_tokens = headers.get("x-ratelimit-reset-tokens")
+        
+        now_iso = datetime.now(timezone.utc).isoformat()
+        
+        try:
+            await db.groq_usage.insert_one({
+                "timestamp": now_iso,
+                "model": model,
+                "purpose": purpose,
+                "prompt_tokens": usage.get("prompt_tokens", 0) if usage else 0,
+                "completion_tokens": usage.get("completion_tokens", 0) if usage else 0,
+                "total_tokens": usage.get("total_tokens", 0) if usage else 0,
+                "limit_requests": limit_requests,
+                "limit_tokens": limit_tokens,
+                "remaining_requests": remaining_requests,
+                "remaining_tokens": remaining_tokens,
+                "reset_requests": reset_requests,
+                "reset_tokens": reset_tokens,
+            })
+            
+            await db.groq_status.update_one(
+                {"_id": "latest_limits"},
+                {"$set": {
                     "timestamp": now_iso,
-                    "model": model,
-                    "purpose": purpose,
-                    "prompt_tokens": usage.get("prompt_tokens", 0),
-                    "completion_tokens": usage.get("completion_tokens", 0),
-                    "total_tokens": usage.get("total_tokens", 0)
-                })
-            except Exception as ex:
-                logger.warning(f"[Groq Usage log] Failed to save usage log: {ex}")
+                    "limit_requests": limit_requests,
+                    "limit_tokens": limit_tokens,
+                    "remaining_requests": remaining_requests,
+                    "remaining_tokens": remaining_tokens,
+                    "reset_requests": reset_requests,
+                    "reset_tokens": reset_tokens,
+                }},
+                upsert=True
+            )
+        except Exception as ex:
+            logger.warning(f"[Groq Usage log] Failed to save usage/status log: {ex}")
                 
         return content
     except Exception as e:
@@ -1307,9 +1336,39 @@ async def get_groq_usage(_: bool = Depends(require_editorial_key)):
             "requests": item["requests"]
         }
         
+    # Get latest limits status from DB
+    try:
+        latest_status = await db.groq_status.find_one({"_id": "latest_limits"})
+    except Exception as ex:
+        logger.warning(f"[Groq Usage Stats] Failed to query latest status: {ex}")
+        latest_status = None
+        
+    # Get recent 20 calls audit log
+    try:
+        recent_calls = await db.groq_usage.find({}).sort("timestamp", -1).limit(20).to_list(length=20)
+        audit_log = []
+        for call in recent_calls:
+            audit_log.append({
+                "timestamp": call.get("timestamp"),
+                "model": call.get("model", "llama-3.3-70b-versatile"),
+                "purpose": call.get("purpose", "general"),
+                "prompt_tokens": call.get("prompt_tokens", 0),
+                "completion_tokens": call.get("completion_tokens", 0),
+                "total_tokens": call.get("total_tokens", 0),
+                "limit_requests": call.get("limit_requests"),
+                "limit_tokens": call.get("limit_tokens"),
+                "remaining_requests": call.get("remaining_requests"),
+                "remaining_tokens": call.get("remaining_tokens"),
+                "reset_requests": call.get("reset_requests"),
+                "reset_tokens": call.get("reset_tokens"),
+            })
+    except Exception as ex:
+        logger.warning(f"[Groq Usage Stats] Failed to query audit log: {ex}")
+        audit_log = []
+        
     return {
-        "daily_token_limit": 100000,       # Groq Llama-3.3-70b Free Tier Cap
-        "daily_request_limit": 1000,       # Groq Free Tier requests cap
+        "daily_token_limit": 500000,       # Groq Free Tier Daily Token Cap
+        "daily_request_limit": 14400,      # Groq Free Tier Daily Request Cap
         
         "tokens_used_today": t_today.get("total_tokens", 0),
         "prompt_tokens_today": t_today.get("prompt_tokens", 0),
@@ -1319,8 +1378,103 @@ async def get_groq_usage(_: bool = Depends(require_editorial_key)):
         "tokens_used_total": t_total.get("total_tokens", 0),
         "requests_used_total": t_total.get("request_count", 0),
         
-        "by_purpose_today": by_purpose
+        "by_purpose_today": by_purpose,
+        
+        "rate_limits": {
+            "timestamp": latest_status.get("timestamp") if latest_status else None,
+            "limit_requests": latest_status.get("limit_requests") if latest_status else None,
+            "limit_tokens": latest_status.get("limit_tokens") if latest_status else None,
+            "remaining_requests": latest_status.get("remaining_requests") if latest_status else None,
+            "remaining_tokens": latest_status.get("remaining_tokens") if latest_status else None,
+            "reset_requests": latest_status.get("reset_requests") if latest_status else None,
+            "reset_tokens": latest_status.get("reset_tokens") if latest_status else None,
+        } if latest_status else None,
+        
+        "audit_log": audit_log
     }
+
+async def refresh_groq_status(key: str) -> Optional[dict]:
+    import httpx
+    # Lightweight call: 1 max_tokens, high temp/no-op style user query
+    payload = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [{"role": "user", "content": "ping"}],
+        "max_tokens": 1,
+        "temperature": 0.0,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10) as cli:
+            r = await cli.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                json=payload,
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            )
+        if r.status_code == 200:
+            headers = r.headers
+            now_iso = datetime.now(timezone.utc).isoformat()
+            
+            limit_requests = headers.get("x-ratelimit-limit-requests")
+            limit_tokens = headers.get("x-ratelimit-limit-tokens")
+            remaining_requests = headers.get("x-ratelimit-remaining-requests")
+            remaining_tokens = headers.get("x-ratelimit-remaining-tokens")
+            reset_requests = headers.get("x-ratelimit-reset-requests")
+            reset_tokens = headers.get("x-ratelimit-reset-tokens")
+            
+            resp_json = r.json()
+            usage = resp_json.get("usage")
+            
+            rate_limits = {
+                "timestamp": now_iso,
+                "limit_requests": limit_requests,
+                "limit_tokens": limit_tokens,
+                "remaining_requests": remaining_requests,
+                "remaining_tokens": remaining_tokens,
+                "reset_requests": reset_requests,
+                "reset_tokens": reset_tokens,
+            }
+            
+            try:
+                await db.groq_status.update_one(
+                    {"_id": "latest_limits"},
+                    {"$set": rate_limits},
+                    upsert=True
+                )
+                
+                # Also log this quick request
+                await db.groq_usage.insert_one({
+                    "timestamp": now_iso,
+                    "model": "llama-3.3-70b-versatile",
+                    "purpose": "status_check",
+                    "prompt_tokens": usage.get("prompt_tokens", 0) if usage else 0,
+                    "completion_tokens": usage.get("completion_tokens", 0) if usage else 0,
+                    "total_tokens": usage.get("total_tokens", 0) if usage else 0,
+                    "limit_requests": limit_requests,
+                    "limit_tokens": limit_tokens,
+                    "remaining_requests": remaining_requests,
+                    "remaining_tokens": remaining_tokens,
+                    "reset_requests": reset_requests,
+                    "reset_tokens": reset_tokens,
+                })
+            except Exception as ex:
+                logger.warning(f"[Groq status save] Failed to save in DB: {ex}")
+                
+            return rate_limits
+        else:
+            logger.warning(f"[Groq status refresh] HTTP {r.status_code}: {r.text[:200]}")
+    except Exception as e:
+        logger.warning(f"[Groq status refresh] Error: {e}")
+    return None
+
+@api_router.post("/editorial/groq-refresh")
+async def trigger_groq_refresh(_: bool = Depends(require_editorial_key)):
+    global GROQ_API_KEY
+    if not GROQ_API_KEY:
+        raise HTTPException(status_code=400, detail="Groq API Key is not configured on server")
+    res = await refresh_groq_status(GROQ_API_KEY)
+    if not res:
+        raise HTTPException(status_code=502, detail="Failed to retrieve live rate limits from Groq")
+    return res
+
 
 # ── Queue ─────────────────────────────────────────────────────────────────────
 @api_router.get("/editorial/queue")

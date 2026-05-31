@@ -10,6 +10,7 @@ const ScraperControlPanel = lazy(() => import("../components/editorial/ScraperCo
 const SourcesPanel = lazy(() => import("../components/editorial/SourcesPanel"));
 const SystemConfigPanel = lazy(() => import("../components/editorial/SystemConfigPanel"));
 const TimelinePanel = lazy(() => import("../components/editorial/TimelinePanel"));
+const GroqUsagePanel = lazy(() => import("../components/editorial/GroqUsagePanel"));
 const ManualEntryPanel = lazy(() => import("../components/editorial/ManualEntryPanel"));
 
 const STORAGE_KEY = "lv_editorial_key";
@@ -50,6 +51,7 @@ const NAV_ITEMS = [
   { id: "sources",   label: "News Feeds",      icon: "⊕" },
   { id: "site",      label: "Layout Controls", icon: "⚙" },
   { id: "timeline",  label: "Timeline Metrics", icon: "◷" },
+  { id: "groq",      label: "Groq Console",    icon: "⚡" },
   { id: "manual",    label: "Manual Ingest",   icon: "✎" },
 ];
 
@@ -305,6 +307,7 @@ export default function EditorialDesk() {
                 {tab === "sources"   && "Enable or disable individual discovered news sources and networks"}
                 {tab === "site"      && "Adjust home pins, breaking marquee updates, and layout rules"}
                 {tab === "timeline"  && "Track daily publication and rejection telemetry checks"}
+                {tab === "groq"      && "Audit live rate-limits, daily token budgets, and API headers from Groq Cloud"}
                 {tab === "manual"    && "Bypass scraper discover and deploy a custom article instantly"}
               </p>
             </div>
@@ -334,6 +337,7 @@ export default function EditorialDesk() {
                   {tab === "sources"   && <SourcesPanel apiKey={apiKey} />}
                   {tab === "site"      && <SystemConfigPanel apiKey={apiKey} />}
                   {tab === "timeline"  && <TimelinePanel apiKey={apiKey} />}
+                  {tab === "groq"      && <GroqUsagePanel apiKey={apiKey} />}
                   {tab === "manual"    && <ManualEntryPanel apiKey={apiKey} />}
                 </div>
               )}
