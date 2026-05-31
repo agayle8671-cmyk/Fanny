@@ -1071,24 +1071,25 @@ FULL_ARTICLE_SYSTEM = f"""You are a senior staff writer for The Leonida Vice —
 
 {LEONIDA_WORLD_KNOWLEDGE}
 
-Write a FULL EDITORIAL ARTICLE in 4 structured paragraphs. You MUST write ALL FOUR paragraphs completely. Do not stop after one or two paragraphs. The article is not finished until all four sections are written.
+Write a FULL EDITORIAL ARTICLE in exactly 4 paragraphs. You MUST write ALL FOUR paragraphs completely and in full. Do not stop after one or two paragraphs. The article is not finished until all four sections are written in their entirety.
 
 1. LEDE — One punchy sentence that captures the story's full weight. No throat-clearing.
-2. CORE FACTS — All the verified information from the source, written as crisp present-tense reporting. Include names, figures, dates, and direct quotes if present in the source. This is the longest paragraph — at minimum 100 words.
-3. SIGNIFICANCE — Why this matters specifically to GTA VI's development, release trajectory, or the fan community. Connect dots from the world knowledge above where relevant. At minimum 80 words.
-4. LEONIDA TAKE — The editorial voice. What does The Leonida Vice make of this? What questions remain? What should the reader watch for next? At minimum 60 words.
+2. CORE FACTS — All the verified information from the source, written as crisp present-tense reporting. Include names, figures, dates, and direct quotes if present in the source. This is the longest paragraph — you MUST write at minimum 120 words for this paragraph alone.
+3. SIGNIFICANCE — Why this matters specifically to GTA VI's development, release trajectory, or the fan community. Connect dots from the world knowledge above where relevant. You MUST write at minimum 100 words for this paragraph.
+4. LEONIDA TAKE — The editorial voice. What does The Leonida Vice make of this? What questions remain? What should the reader watch for next? You MUST write at minimum 80 words for this paragraph.
 
 CRITICAL OUTPUT RULES:
-- You MUST write all 4 paragraphs. NEVER stop after fewer than 4 paragraphs.
-- Minimum 350 words total. Target 450-550 words.
+- You MUST write all 4 paragraphs. NEVER stop after fewer than 4 paragraphs. If you stop early, the output is REJECTED.
+- MINIMUM 400 words total across all four paragraphs. Target 480-580 words.
+- If the source material is thin, expand using the Leonida World Knowledge context above — connect the story to the broader GTA VI picture, the release timeline, the protagonists, or the fan community reaction.
 - Prose only — no headers, bullets, or markdown within the article.
 - Present tense throughout.
-- Never fabricate details not in the source.
+- Never fabricate specific quotes, statistics, or events not in the source.
 - Do not restate the headline as the opening sentence.
 - Frame the piece as a professional staff writer analyzing external reports. Do NOT claim to have broken the story or conducted primary investigative reporting.
 - Explicitly attribute direct quotes, exclusive details, or major claims to the original Source (e.g., "speaking to [Source]", "as reported by [Source]") so the reader knows where the information originated."""
 
-async def _groq_chat(messages: list, max_tokens: int = 300, model: str = "llama-3.3-70b-versatile", purpose: str = "general") -> Optional[str]:
+async def _groq_chat(messages: list, max_tokens: int = 300, model: str = "llama-3.3-70b-versatile", purpose: str = "general", temperature: float = 0.2) -> Optional[str]:
     """Call Groq API. Returns content string or None on failure and logs token usage to MongoDB."""
     key = GROQ_API_KEY
     if not key:
@@ -1098,7 +1099,7 @@ async def _groq_chat(messages: list, max_tokens: int = 300, model: str = "llama-
         "model": model,
         "messages": messages,
         "max_tokens": max_tokens,
-        "temperature": 0.2,
+        "temperature": temperature,
     }
     try:
         async with httpx.AsyncClient(timeout=60) as cli:
@@ -1168,11 +1169,22 @@ async def _groq_chat(messages: list, max_tokens: int = 300, model: str = "llama-
         logger.warning(f"[Groq] Error: {e}")
         return None
 
-def _best_source_text(title: str, excerpt: Optional[str], content: Optional[str] = None) -> str:
-    if excerpt and len(excerpt.strip()) >= 20:
-        return excerpt.strip()
+def _best_source_text(title: str, excerpt: Optional[str], content: Optional[str] = None, ai_content: Optional[str] = None) -> str:
+    """
+    Return the richest available source text for the AI to work from.
+    Priority: full content > excerpt > existing aiContent > title only.
+    Content is capped at 4000 chars so the full_article prompt has real material.
+    """
     if content and len(content.strip()) >= 20:
-        return content.strip()[:800]
+        return content.strip()[:4000]
+    if excerpt and len(excerpt.strip()) >= 20:
+        # Combine excerpt + existing aiContent if available for richer context
+        base = excerpt.strip()
+        if ai_content and len(ai_content.strip()) >= 50:
+            base = base + "\n\n" + ai_content.strip()
+        return base[:4000]
+    if ai_content and len(ai_content.strip()) >= 50:
+        return ai_content.strip()[:4000]
     return title
 
 def _split_dense_paragraphs(text: str, max_words: int = 140) -> list:
@@ -1210,7 +1222,10 @@ async def ai_summarize(article: dict, groq_key: Optional[str] = None) -> dict:
     content  = article.get("content")
     src_name = article.get("sourceName", "Unknown")
     category = article.get("category", "World")
-    source_text = _best_source_text(title, excerpt, content)
+    # Pass existing aiContent as fallback so re-processing has rich context even
+    # when the original RSS feed only provided a title or 1-sentence excerpt.
+    existing_ai_content = article.get("aiContent")
+    source_text = _best_source_text(title, excerpt, content, ai_content=existing_ai_content)
 
     result = {"aiProcessed": False, "aiSummary": None, "aiContent": None, "aiTags": [], "newsValueScore": 50}
 
@@ -1257,6 +1272,7 @@ async def ai_summarize(article: dict, groq_key: Optional[str] = None) -> dict:
         full = await _groq_chat(
             [{"role": "system", "content": FULL_ARTICLE_SYSTEM}, {"role": "user", "content": full_prompt}],
             max_tokens=1500,
+            temperature=0.55,
             purpose="full_article"
         )
         if full and len(full.strip()) > 80:
@@ -2696,6 +2712,7 @@ async def parse_article_groq(
             [{"role": "system", "content": FULL_ARTICLE_SYSTEM}, {"role": "user", "content": article_prompt}],
             max_tokens=1500,
             model=model,
+            temperature=0.55,
             purpose="parse_full_article"
         )
         if full and len(full.strip()) > 80:
