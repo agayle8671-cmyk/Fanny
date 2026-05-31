@@ -1090,9 +1090,10 @@ CRITICAL OUTPUT RULES:
 - Explicitly attribute direct quotes, exclusive details, or major claims to the original Source (e.g., "speaking to [Source]", "as reported by [Source]") so the reader knows where the information originated."""
 
 async def _groq_chat(messages: list, max_tokens: int = 300, model: str = "llama-3.3-70b-versatile", purpose: str = "general", temperature: float = 0.2) -> Optional[str]:
-    """Call Groq API. Returns content string or None on failure and logs token usage to MongoDB."""
+    """Call Groq API. Returns content string or None on failure."""
     key = GROQ_API_KEY
     if not key:
+        logger.warning(f"[Groq] No API key set — skipping call (purpose={purpose})")
         return None
     import httpx
     payload = {
@@ -1111,62 +1112,55 @@ async def _groq_chat(messages: list, max_tokens: int = 300, model: str = "llama-
         if r.status_code != 200:
             logger.warning(f"[Groq] HTTP {r.status_code}: {r.text[:200]}")
             return None
-        
+
         resp_json = r.json()
         choice = resp_json["choices"][0]
         content = choice["message"]["content"]
         finish_reason = choice.get("finish_reason", "unknown")
         if finish_reason == "length":
-            logger.warning(f"[Groq] Response truncated by max_tokens (finish_reason=length). Model={model}, purpose={purpose}.")
-        
-        # Log token usage to MongoDB
-        usage = resp_json.get("usage")
-        headers = r.headers
-        
-        limit_requests = headers.get("x-ratelimit-limit-requests")
-        limit_tokens = headers.get("x-ratelimit-limit-tokens")
-        remaining_requests = headers.get("x-ratelimit-remaining-requests")
-        remaining_tokens = headers.get("x-ratelimit-remaining-tokens")
-        reset_requests = headers.get("x-ratelimit-reset-requests")
-        reset_tokens = headers.get("x-ratelimit-reset-tokens")
-        
-        now_iso = datetime.now(timezone.utc).isoformat()
-        
+            logger.warning(f"[Groq] Truncated by max_tokens (purpose={purpose}, model={model})")
+        else:
+            logger.info(f"[Groq] OK — purpose={purpose}, words={len(content.split())}, finish={finish_reason}")
+
+        # Log token usage to MongoDB — fully isolated, never blocks the return
         try:
+            usage = resp_json.get("usage", {})
+            resp_headers = r.headers
+            now_iso = datetime.now(timezone.utc).isoformat()
             await db.groq_usage.insert_one({
                 "timestamp": now_iso,
                 "model": model,
                 "purpose": purpose,
-                "prompt_tokens": usage.get("prompt_tokens", 0) if usage else 0,
-                "completion_tokens": usage.get("completion_tokens", 0) if usage else 0,
-                "total_tokens": usage.get("total_tokens", 0) if usage else 0,
-                "limit_requests": limit_requests,
-                "limit_tokens": limit_tokens,
-                "remaining_requests": remaining_requests,
-                "remaining_tokens": remaining_tokens,
-                "reset_requests": reset_requests,
-                "reset_tokens": reset_tokens,
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "completion_tokens": usage.get("completion_tokens", 0),
+                "total_tokens": usage.get("total_tokens", 0),
+                "limit_requests":     resp_headers.get("x-ratelimit-limit-requests"),
+                "limit_tokens":       resp_headers.get("x-ratelimit-limit-tokens"),
+                "remaining_requests": resp_headers.get("x-ratelimit-remaining-requests"),
+                "remaining_tokens":   resp_headers.get("x-ratelimit-remaining-tokens"),
+                "reset_requests":     resp_headers.get("x-ratelimit-reset-requests"),
+                "reset_tokens":       resp_headers.get("x-ratelimit-reset-tokens"),
             })
-            
             await db.groq_status.update_one(
                 {"_id": "latest_limits"},
                 {"$set": {
                     "timestamp": now_iso,
-                    "limit_requests": limit_requests,
-                    "limit_tokens": limit_tokens,
-                    "remaining_requests": remaining_requests,
-                    "remaining_tokens": remaining_tokens,
-                    "reset_requests": reset_requests,
-                    "reset_tokens": reset_tokens,
+                    "limit_requests":     resp_headers.get("x-ratelimit-limit-requests"),
+                    "limit_tokens":       resp_headers.get("x-ratelimit-limit-tokens"),
+                    "remaining_requests": resp_headers.get("x-ratelimit-remaining-requests"),
+                    "remaining_tokens":   resp_headers.get("x-ratelimit-remaining-tokens"),
+                    "reset_requests":     resp_headers.get("x-ratelimit-reset-requests"),
+                    "reset_tokens":       resp_headers.get("x-ratelimit-reset-tokens"),
                 }},
                 upsert=True
             )
-        except Exception as ex:
-            logger.warning(f"[Groq Usage log] Failed to save usage/status log: {ex}")
-                
+        except Exception as log_ex:
+            logger.warning(f"[Groq] Usage log failed (non-fatal): {log_ex}")
+
         return content
+
     except Exception as e:
-        logger.warning(f"[Groq] Error: {e}")
+        logger.warning(f"[Groq] Request error (purpose={purpose}): {e}")
         return None
 
 def _best_source_text(title: str, excerpt: Optional[str], content: Optional[str] = None, ai_content: Optional[str] = None) -> str:
@@ -1222,19 +1216,14 @@ async def ai_summarize(article: dict, groq_key: Optional[str] = None) -> dict:
     content  = article.get("content")
     src_name = article.get("sourceName", "Unknown")
     category = article.get("category", "World")
-    # Pass existing aiContent as fallback so re-processing has rich context even
-    # when the original RSS feed only provided a title or 1-sentence excerpt.
-    existing_ai_content = article.get("aiContent")
-    source_text = _best_source_text(title, excerpt, content, ai_content=existing_ai_content)
+    source_text = _best_source_text(title, excerpt, content, ai_content=article.get("aiContent"))
 
     result = {"aiProcessed": False, "aiSummary": None, "aiContent": None, "aiTags": [], "newsValueScore": 50}
 
     try:
-        if not GROQ_API_KEY:
-            logger.error(f"[AI] GROQ_API_KEY is not set — cannot generate article for '{title[:60]}'")
-            return result
+        logger.info(f"[AI] Summarizing '{title[:60]}' — {len(source_text)} chars of source")
 
-        logger.info(f"[AI] Starting summarize for '{title[:60]}' — source_text length: {len(source_text)} chars")
+        # ── Call 1: Deck / summary ────────────────────────────────────────────
         user_prompt = (
             f'Category: {category}\nSource: {src_name}\nHeadline: "{title}"\n'
             f'Raw content: "{source_text[:1200]}"\n\n'
@@ -1246,21 +1235,13 @@ async def ai_summarize(article: dict, groq_key: Optional[str] = None) -> dict:
             purpose="summary"
         )
         if raw:
-            logger.info(f"[AI] Summary call returned {len(raw)} chars for '{title[:60]}'")
-        else:
-            logger.warning(f"[AI] Summary call returned None for '{title[:60]}' — check Groq key/quota")
-        if raw:
             title_m = re.search(r'REWRITTEN TITLE:\s*(.+)$', raw, re.I | re.M)
             rewritten_title = title_m.group(1).strip() if title_m else None
-            
-            # Clean summary by removing the rewritten title line
             summary = raw
             if rewritten_title:
                 summary = re.sub(r'REWRITTEN TITLE:.+$', '', summary, flags=re.I|re.M)
-                # Sanitize title tags or quotes
                 rewritten_title = re.sub(r'["\']', '', rewritten_title).strip()
                 result["title"] = rewritten_title
-            
             conf_m = re.search(r'CONFIDENCE:\s*(high|medium|low)', summary, re.I)
             tags_m = re.search(r'TAGS:\s*(.+)$', summary, re.I | re.M)
             summary = re.sub(r'CONFIDENCE:\s*(high|medium|low).*', '', summary, flags=re.I|re.S)
@@ -1270,30 +1251,18 @@ async def ai_summarize(article: dict, groq_key: Optional[str] = None) -> dict:
             score = {"high": 90, "medium": 65, "low": 35}.get(confidence, 65)
             result.update({"aiSummary": summary if len(summary) > 20 else None, "aiTags": tags, "newsValueScore": score})
 
-        # Full article content — 4-paragraph long-form
+        # ── Call 2: Full 4-paragraph article ─────────────────────────────────
         full_prompt = (
             f'Category: {category}\nSource: {src_name}\nHeadline: "{title}"\n'
-            f'Raw content: "{source_text[:3000]}"\n\n'
-            f'Write the COMPLETE full editorial article. You MUST write all 4 full paragraphs with at least 350 words total — '
-            f'do NOT stop early. Structure: Lede → Core Facts → Significance → Leonida Take. '
-            f'Each paragraph must be at least 2-3 sentences long. Do not cut the article short.'
+            f'Raw content: "{source_text[:2000]}"\n\n'
+            f'Write the full editorial article. 4 paragraphs, 350-550 words. Lede → Core Facts → Significance → Leonida Take.'
         )
         full = await _groq_chat(
             [{"role": "system", "content": FULL_ARTICLE_SYSTEM}, {"role": "user", "content": full_prompt}],
-            max_tokens=1500,
-            model="meta-llama/llama-4-scout-17b-16e-instruct",
-            temperature=0.55,
+            max_tokens=750,
             purpose="full_article"
         )
-        if full:
-            logger.info(f"[AI] Full article call returned {len(full.split())} words for '{title[:60]}'")
-        else:
-            logger.warning(f"[AI] Full article call returned None for '{title[:60]}' — check Groq key/quota")
         if full and len(full.strip()) > 80:
-            full_word_count = len(full.split())
-            if full_word_count < 100:
-                logger.warning(f"[AI] Suspiciously short article ({full_word_count} words) for '{title[:60]}'")
-            # Enforce paragraph density: split any block > 140 words, ensure >= 4 paragraphs
             paras = _split_dense_paragraphs(full.strip(), max_words=140)
             while len(paras) < 4:
                 paras.append(paras[-1] if paras else "Further analysis from Leonida Vice field correspondents is forthcoming.")
