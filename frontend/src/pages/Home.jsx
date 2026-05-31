@@ -32,7 +32,7 @@ function normalizeArticle(a) {
 }
 
 const Home = () => {
-  const [, setActiveSlide] = useState(0);
+  const [activeArticle, setActiveArticle] = useState(null);
   const [allArticles, setAllArticles] = useState(localArticles.map(normalizeArticle));
 
   useEffect(() => {
@@ -57,6 +57,47 @@ const Home = () => {
     return () => { alive = false; };
   }, []);
 
+  // Split and format dynamic titles to follow split-row layout with Vice gradients
+  const renderHeroTitle = (title) => {
+    if (!title) return null;
+    const words = title.split(" ");
+    if (words.length <= 2) {
+      return (
+        <span
+          style={{
+            background: "linear-gradient(90deg, #FF2A6D 0%, #FF7B00 50%, #05D9E8 100%)",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+          }}
+        >
+          {title}
+        </span>
+      );
+    }
+    const midIndex = Math.floor(words.length / 2);
+    const firstPart = words.slice(0, midIndex).join(" ");
+    const gradientPart = words[midIndex];
+    const lastPart = words.slice(midIndex + 1).join(" ");
+    return (
+      <>
+        {firstPart} <br />
+        <span
+          style={{
+            background: "linear-gradient(90deg, #FF2A6D 0%, #FF7B00 50%, #05D9E8 100%)",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+          }}
+        >
+          {gradientPart}
+        </span>{" "}
+        <br />
+        {lastPart}
+      </>
+    );
+  };
+
+  const heroArticles = allArticles.slice(0, 5);
+
   return (
     <div data-testid="home-page" className="bg-[#050505] text-white">
       {/* HERO BILLBOARD — rotating, Ken Burns */}
@@ -64,7 +105,10 @@ const Home = () => {
         data-testid="home-hero"
         className="relative w-full min-h-[100vh] flex items-end overflow-hidden scanline vignette"
       >
-        <HeroCarousel onSlideChange={(_, i) => setActiveSlide(i)} />
+        <HeroCarousel
+          articles={heroArticles}
+          onSlideChange={(slide, i) => setActiveArticle(heroArticles[i])}
+        />
 
         <div className="absolute inset-0 z-10 side-overlay" />
         <div className="absolute inset-0 z-10 bg-gradient-to-t from-[#050505] via-transparent to-[#050505]/40" />
@@ -84,41 +128,63 @@ const Home = () => {
           <div className="max-w-3xl space-y-7">
             <span className="inline-flex items-center gap-3 text-[11px] tracking-[0.4em] uppercase text-[#05D9E8] font-semibold animate-fade-up">
               <span className="h-px w-10 bg-[#05D9E8]" />
-              Welcome to Leonida
+              {activeArticle ? activeArticle.category : "Welcome to Leonida"}
             </span>
-            <h1
-              className="font-display uppercase text-6xl md:text-8xl lg:text-9xl leading-[0.85] tracking-[0.01em] text-white animate-fade-up delay-150 vice-glow"
-              data-testid="home-hero-title"
-            >
-              The Most <br />
-              <span
-                style={{
-                  background:
-                    "linear-gradient(90deg, #FF2A6D 0%, #FF7B00 50%, #05D9E8 100%)",
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                }}
+
+            {activeArticle ? (
+              <Link to={`/news/${activeArticle.slug}`} className="block group">
+                <h1
+                  className="font-display uppercase text-4xl md:text-6xl lg:text-7xl leading-[0.95] tracking-[0.01em] text-white animate-fade-up delay-150 vice-glow group-hover:text-[#05D9E8] transition-colors duration-300"
+                  data-testid="home-hero-title"
+                >
+                  {renderHeroTitle(activeArticle.title)}
+                </h1>
+              </Link>
+            ) : (
+              <h1
+                className="font-display uppercase text-6xl md:text-8xl lg:text-9xl leading-[0.85] tracking-[0.01em] text-white animate-fade-up delay-150 vice-glow"
+                data-testid="home-hero-title"
               >
-                Anticipated
-              </span>{" "}
-              <br />
-              Game Of All Time
-            </h1>
-            <p className="font-editorial text-xl md:text-2xl italic text-zinc-200 max-w-2xl leading-snug animate-fade-up delay-300">
-              Grand Theft Auto VI returns to Vice City — and an entire state called
-              Leonida — on November 19, 2026. This is the fan archive.
+                The Most <br />
+                <span
+                  style={{
+                    background:
+                      "linear-gradient(90deg, #FF2A6D 0%, #FF7B00 50%, #05D9E8 100%)",
+                    WebkitBackgroundClip: "text",
+                    WebkitTextFillColor: "transparent",
+                  }}
+                >
+                  Anticipated
+                </span>{" "}
+                <br />
+                Game Of All Time
+              </h1>
+            )}
+
+            <p className="font-editorial text-xl md:text-2xl italic text-zinc-200 max-w-2xl leading-snug animate-fade-up delay-300 line-clamp-3">
+              {activeArticle ? activeArticle.dek : "Grand Theft Auto VI returns to Vice City — and an entire state called Leonida — on November 19, 2026. This is the fan archive."}
             </p>
             <div className="animate-fade-up delay-500">
               <Countdown />
             </div>
             <div className="flex flex-wrap gap-4 pt-2 animate-fade-up delay-700">
-              <Link
-                to="/media"
-                data-testid="home-hero-watch-trailer-btn"
-                className="inline-flex items-center gap-3 px-7 py-4 bg-[#FF2A6D] text-white font-semibold tracking-[0.25em] text-xs uppercase rounded-sm hover:bg-[#FF7B00] transition-colors duration-300"
-              >
-                <Play size={16} fill="white" /> Watch Trailer
-              </Link>
+              {activeArticle ? (
+                <Link
+                  to={`/news/${activeArticle.slug}`}
+                  data-testid="home-hero-read-article-btn"
+                  className="inline-flex items-center gap-3 px-7 py-4 bg-[#FF2A6D] text-white font-semibold tracking-[0.25em] text-xs uppercase rounded-sm hover:bg-[#FF7B00] transition-colors duration-300 shadow-[0_0_15px_rgba(255,42,109,0.35)]"
+                >
+                  Read Full Article <ArrowRight size={16} />
+                </Link>
+              ) : (
+                <Link
+                  to="/media"
+                  data-testid="home-hero-watch-trailer-btn"
+                  className="inline-flex items-center gap-3 px-7 py-4 bg-[#FF2A6D] text-white font-semibold tracking-[0.25em] text-xs uppercase rounded-sm hover:bg-[#FF7B00] transition-colors duration-300"
+                >
+                  <Play size={16} fill="white" /> Watch Trailer
+                </Link>
+              )}
               <Link
                 to="/news"
                 data-testid="home-hero-explore-btn"

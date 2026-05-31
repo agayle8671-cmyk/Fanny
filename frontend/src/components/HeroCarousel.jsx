@@ -36,26 +36,44 @@ export const heroSlides = [
   },
 ];
 
-export const HeroCarousel = ({ onSlideChange }) => {
+export const HeroCarousel = ({ articles = [], onSlideChange }) => {
   const [index, setIndex] = useState(0);
 
-  useEffect(() => {
-    const id = setInterval(() => {
-      setIndex((i) => (i + 1) % heroSlides.length);
-    }, 6500);
-    return () => clearInterval(id);
-  }, []);
+  const slides = articles.length > 0
+    ? articles.map((art, idx) => ({
+        image: art.heroImage || art.imageThumbnail || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='1920' height='1080'><rect width='1920' height='1080' fill='%23050505'/></svg>",
+        label: art.title,
+        accent: idx % 3 === 0 ? "#FF2A6D" : idx % 3 === 1 ? "#05D9E8" : "#FF7B00",
+        cue: art.dek || "",
+        category: art.category,
+        slug: art.slug
+      }))
+    : heroSlides;
 
   useEffect(() => {
-    if (onSlideChange) onSlideChange(heroSlides[index], index);
-  }, [index, onSlideChange]);
+    setIndex(0); // Reset index when articles update
+  }, [articles.length]);
+
+  useEffect(() => {
+    if (slides.length <= 1) return;
+    const id = setInterval(() => {
+      setIndex((i) => (i + 1) % slides.length);
+    }, 6500);
+    return () => clearInterval(id);
+  }, [slides.length]);
+
+  useEffect(() => {
+    if (onSlideChange && slides[index]) {
+      onSlideChange(slides[index], index);
+    }
+  }, [index, onSlideChange, slides]);
 
   return (
     <>
       <div className="absolute inset-0 z-0 grain" data-testid="hero-carousel">
-        {heroSlides.map((s, i) => (
+        {slides.map((s, i) => (
           <div
-            key={s.image}
+            key={s.image + i}
             className={`absolute inset-0 transition-opacity duration-[2200ms] ease-out ${
               i === index ? "opacity-100" : "opacity-0"
             }`}
@@ -79,19 +97,19 @@ export const HeroCarousel = ({ onSlideChange }) => {
           </span>
           <span
             data-testid="hero-slide-label"
-            className="font-display text-xl text-white"
-            style={{ color: heroSlides[index].accent }}
+            className="font-display text-xl text-white max-w-[300px] truncate"
+            style={{ color: slides[index]?.accent }}
           >
-            {heroSlides[index].label}
+            {slides[index]?.category || "COVER STORY"}
           </span>
-          <span className="font-editorial italic text-xs text-zinc-300 max-w-[260px] text-right">
-            {heroSlides[index].cue}
+          <span className="font-editorial italic text-xs text-zinc-300 max-w-[260px] text-right line-clamp-2">
+            {slides[index]?.label}
           </span>
         </div>
         <div className="flex items-center gap-2" data-testid="hero-dots">
-          {heroSlides.map((s, i) => (
+          {slides.map((s, i) => (
             <button
-              key={s.image}
+              key={s.image + i}
               data-testid={`hero-dot-${i}`}
               onClick={() => setIndex(i)}
               aria-label={`Show slide ${i + 1}`}
@@ -104,7 +122,7 @@ export const HeroCarousel = ({ onSlideChange }) => {
           ))}
         </div>
         <div className="hidden md:block text-[10px] uppercase tracking-[0.35em] text-zinc-500 tabular-nums">
-          {String(index + 1).padStart(2, "0")} / {String(heroSlides.length).padStart(2, "0")}
+          {String(index + 1).padStart(2, "0")} / {String(slides.length).padStart(2, "0")}
         </div>
       </div>
     </>
